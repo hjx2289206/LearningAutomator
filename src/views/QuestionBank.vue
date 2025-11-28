@@ -29,7 +29,7 @@
     <div class="search-section">
       <div class="search-box">
         <input type="text" v-model="searchQuery" placeholder="搜索题目..." class="search-input" />
-        <button class="btn btn-primary">搜索</button>
+        <button class="btn btn-primary" @click="search">搜索</button>
       </div>
     </div>
 
@@ -47,7 +47,7 @@
       <div class="table-body">
         <div v-for="question in filteredQuestions" :key="question.id" class="table-row">
           <div class="table-cell">{{ question.id }}</div>
-          <div class="table-cell question-text">{{ question.question }}</div>
+          <div class="table-cell question-text">{{ question.text }}</div>
           <div class="table-cell">{{ question.answer }}</div>
           <div class="table-cell">{{ question.source }}</div>
           <div class="table-cell">
@@ -68,10 +68,11 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
+import { questionBankService } from '@/services/api'
 
 interface Question {
-  id: number
-  question: string
+  id: string | number
+  text: string
   answer: string
   source: string
 }
@@ -92,51 +93,39 @@ const searchQuery = ref('')
 let baseURL = ''
 
 const initAPI = async () => {
-  try {
-    const port = await (window as any)?.electronAPI?.getBackendPort?.()
-    baseURL = `http://localhost:${port ?? 3001}`
-  } catch (err) {
-    baseURL = 'http://localhost:3001'
-  }
+  await questionBankService.init()
 }
 
 const loadStats = async () => {
   try {
-    const response = await fetch(`${baseURL}/api/question-bank/stats`)
-    const data = await response.json()
-    if (data.success) {
-      stats.value = data.stats
-    }
+    const s = await questionBankService.getStats()
+    if (s) stats.value = s
   } catch (error) {
-    console.error('加载统计信息失败:', error)
   }
 }
 
 const loadQuestions = async () => {
-  // 模拟数据 - 实际应该从后端API获取
-  questions.value = [
-    {
-      id: 1,
-      question: '社会主义核心价值观的主要内容是什么？',
-      answer: '富强、民主、文明、和谐、自由、平等、公正、法治、爱国、敬业、诚信、友善',
-      source: '政治学习',
-    },
-    {
-      id: 2,
-      question: '中国共产党人的初心和使命是什么？',
-      answer: '为中国人民谋幸福，为中华民族谋复兴',
-      source: '政治学习',
-    },
-  ]
+  const list = await questionBankService.getQuestions()
+  questions.value = list
 }
 
-const exportQuestions = () => {
-  alert('导出功能待实现')
+const exportQuestions = async () => {
+  const data = await questionBankService.exportQuestions()
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = 'question_bank_export.json'
+  a.click()
+  URL.revokeObjectURL(url)
 }
 
-const deleteQuestion = (id: number) => {
-  if (confirm('确定要删除这道题目吗？')) {
+const deleteQuestion = async (id: string | number) => {
+  if (!confirm('确定要删除这道题目吗？')) return
+  const res = await questionBankService.deleteQuestion(typeof id === 'string' ? id : id)
+  if (res.success) {
     questions.value = questions.value.filter((q) => q.id !== id)
+    await loadStats()
   }
 }
 
@@ -146,13 +135,17 @@ const formatDate = (dateString: string) => {
 }
 
 const filteredQuestions = computed(() => {
-  if (!searchQuery.value) return questions.value
-
-  const query = searchQuery.value.toLowerCase()
-  return questions.value.filter(
-    (q) => q.question.toLowerCase().includes(query) || q.answer.toLowerCase().includes(query),
-  )
+  return questions.value
 })
+
+const search = async () => {
+  if (!searchQuery.value) {
+    await loadQuestions()
+    return
+    }
+  const result = await questionBankService.searchQuestions(searchQuery.value)
+  questions.value = result
+}
 
 onMounted(async () => {
   await initAPI()

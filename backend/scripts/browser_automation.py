@@ -31,7 +31,13 @@ class BrowserAutomation:
         # 初始化AI和题库
         self.ai_assistant = None
         if self.config.get('ai_api_key'):
-            self.ai_assistant = AIAssistant(self.config['ai_api_key'])
+            self.ai_assistant = AIAssistant(
+                self.config['ai_api_key'],
+                base_url=self.config.get('ai_base_url', 'https://api-inference.modelscope.cn/v1/'),
+                model=self.config.get('ai_model', 'deepseek-ai/DeepSeek-V3.1'),
+                temperature=self.config.get('ai_temperature', 0.1),
+                max_tokens=self.config.get('ai_max_tokens', 1000),
+            )
         
         # 题库改为可共享的实例，未传入则使用默认文件
         if question_bank is not None:
@@ -56,8 +62,11 @@ class BrowserAutomation:
             chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
             chrome_options.add_experimental_option('useAutomationExtension', False)
             
-            # 用户数据目录
-            user_data_dir = os.path.join(os.getcwd(), "user_data", f"profile_{self.browser_id}")
+            # 用户数据目录（使用配置项）
+            base_user_data_dir = self.config.get('user_data_dir', 'user_data')
+            if not os.path.isabs(base_user_data_dir):
+                base_user_data_dir = os.path.join(os.getcwd(), base_user_data_dir)
+            user_data_dir = os.path.join(base_user_data_dir, f"profile_{self.browser_id}")
             if not os.path.exists(user_data_dir):
                 os.makedirs(user_data_dir)
             
@@ -181,11 +190,19 @@ class BrowserAutomation:
         self.driver = None
 
     def is_driver_alive(self):
-        """检查 WebDriver 是否仍然可用/连接正常"""
         if not self.driver:
             return False
+        # 先检测 chromedriver 进程是否存活
         try:
-            _ = self.driver.title
+            service = getattr(self.driver, 'service', None)
+            proc = getattr(service, 'process', None) if service else None
+            if proc is not None and proc.poll() is not None:
+                return False
+        except Exception:
+            pass
+        # 尝试一次极轻量远程调用，若失败则视为已断开
+        try:
+            self.driver.execute_script("return 1")
             return True
         except Exception:
             return False
@@ -194,8 +211,8 @@ class BrowserAutomation:
         """获取当前状态"""
         current_url = None
         title = None
-        # 即使 self.driver 存在，也可能已断连或驱动已退出，访问属性会抛异常
-        if self.driver:
+        # 先检查驱动是否仍然可用，避免访问属性导致连接重试
+        if self.driver and self.is_driver_alive():
             try:
                 current_url = self.driver.current_url
             except Exception:

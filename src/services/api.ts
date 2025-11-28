@@ -113,19 +113,23 @@ export class QuestionBankService extends ApiService {
   }
 
   async getQuestions() {
-    // 这里需要后端提供对应的API
-    // 暂时返回空数组，等后端实现
-    return []
+    const data = await this.request('/api/question-bank/items')
+    return data.success ? data.questions : []
   }
 
   async searchQuestions(query: string) {
-    // 搜索题目API
-    return []
+    const data = await this.request(`/api/question-bank/search?query=${encodeURIComponent(query)}`)
+    return data.success ? data.questions : []
   }
 
-  async deleteQuestion(questionId: number) {
-    // 删除题目API
-    return { success: true }
+  async deleteQuestion(questionId: string | number) {
+    const data = await this.request(`/api/question-bank/${questionId}`, { method: 'DELETE' })
+    return data
+  }
+
+  async exportQuestions() {
+    const data = await this.request('/api/question-bank/export')
+    return data.success ? data.data : {}
   }
 }
 

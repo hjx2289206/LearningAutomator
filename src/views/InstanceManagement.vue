@@ -5,7 +5,7 @@
       <div class="header-actions">
         <button class="btn btn-primary" @click="createBrowser">+ 创建新实例</button>
         <button class="btn btn-secondary" @click="stopAllBrowsers">⏹️ 停止所有实例</button>
-        <button class="btn btn-outline" @click="loadBrowsers">🔄 刷新</button>
+        <button class="btn btn-outline" @click="() => { void loadBrowsers() }">🔄 刷新</button>
       </div>
     </div>
 
@@ -17,7 +17,7 @@
     <div v-else-if="error" class="error-state">
       <div class="error-icon">⚠️</div>
       <div class="error-message">{{ error }}</div>
-      <button class="btn btn-primary" @click="loadBrowsers">重试</button>
+      <button class="btn btn-primary" @click="() => { void loadBrowsers() }">重试</button>
     </div>
 
     <div v-else class="instances-grid">

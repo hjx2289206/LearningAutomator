@@ -1,5 +1,7 @@
 import threading
 import logging
+import os
+import json
 from typing import Dict
 from .browser_automation import BrowserAutomation
 
@@ -8,6 +10,9 @@ class BrowserManager:
         self.browsers: Dict[int, BrowserAutomation] = {}
         self.threads: Dict[int, threading.Thread] = {}
         self.next_id = 1
+        self._base_dir = os.path.dirname(os.path.dirname(__file__))
+        self._config_path = os.path.join(self._base_dir, 'config.json')
+        self._instances_path = os.path.join(self._base_dir, 'instances.json')
         
         # 完整的默认配置项
         self.default_config = {
@@ -85,6 +90,9 @@ class BrowserManager:
             'window_size': '1200,800',            # 浏览器窗口大小
         }
         
+        # 加载持久化配置
+        self._load_config()
+
         # 设置日志
         logging.basicConfig(
             level=getattr(logging, self.default_config['log_level']),
@@ -97,6 +105,9 @@ class BrowserManager:
         # 共享题库实例（所有浏览器共用同一个题库）
         from .question_bank import QuestionBank
         self.question_bank = QuestionBank(self.default_config.get('question_bank_file', 'question_bank.json'))
+
+        # 加载已存在的实例（不自动运行）
+        self._load_instances()
 
     def create_browser(self, config=None):
         """创建浏览器实例"""
@@ -111,6 +122,7 @@ class BrowserManager:
         # 创建浏览器实例
         browser = BrowserAutomation(browser_id, final_config, question_bank=self.question_bank)
         self.browsers[browser_id] = browser
+        self._save_instances()
         
         self.logger.info(f"✅ 创建浏览器实例 {browser_id}")
         return browser_id
@@ -151,6 +163,7 @@ class BrowserManager:
         if browser_id in self.threads:
             del self.threads[browser_id]
         self.logger.info(f"✅ 移除浏览器 {browser_id}")
+        self._save_instances()
 
     def get_browser_status(self, browser_id):
         """获取浏览器状态"""
@@ -173,7 +186,7 @@ class BrowserManager:
     def get_all_status(self):
         """获取所有浏览器状态"""
         status_list = []
-        for browser_id in self.browsers:
+        for browser_id in list(self.browsers.keys()):
             status = self.get_browser_status(browser_id)
             if status:
                 status_list.append(status)
@@ -183,6 +196,7 @@ class BrowserManager:
         """更新默认配置（不影响已创建的浏览器实例）"""
         old_config = self.default_config.copy()
         self.default_config.update(new_config)
+        self._save_config()
         
         # 记录配置变更
         changed_keys = []
@@ -198,6 +212,7 @@ class BrowserManager:
         self.logger.info("🛑 停止所有浏览器...")
         for browser_id in list(self.browsers.keys()):
             self.stop_browser(browser_id)
+        self._save_instances()
 
     def get_stats(self):
         """获取管理器统计信息"""
@@ -207,3 +222,62 @@ class BrowserManager:
             'next_browser_id': self.next_id,
             'config_keys': len(self.default_config)
         }
+
+    def _load_config(self):
+        try:
+            if os.path.exists(self._config_path):
+                with open(self._config_path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                if isinstance(data, dict):
+                    self.default_config.update(data)
+        except Exception:
+            pass
+
+    def _save_config(self):
+        try:
+            with open(self._config_path, 'w', encoding='utf-8') as f:
+                json.dump(self.default_config, f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+
+    def _load_instances(self):
+        try:
+            if os.path.exists(self._instances_path):
+                with open(self._instances_path, 'r', encoding='utf-8') as f:
+                    content = f.read().strip()
+                    if not content:
+                        return
+                    try:
+                        items = json.loads(content) or []
+                    except Exception:
+                        # 内容损坏，忽略加载
+                        return
+                max_id = 0
+                for item in items:
+                    bid = int(item.get('browser_id'))
+                    conf = item.get('config') or {}
+                    b = BrowserAutomation(bid, conf, question_bank=self.question_bank)
+                    self.browsers[bid] = b
+                    if bid > max_id:
+                        max_id = bid
+                self.next_id = max_id + 1 if max_id >= 1 else 1
+        except Exception:
+            pass
+
+    def _save_instances(self):
+        try:
+            items = []
+            for bid, b in self.browsers.items():
+                items.append({'browser_id': bid, 'config': b.config})
+            tmp_path = self._instances_path + '.tmp'
+            with open(tmp_path, 'w', encoding='utf-8') as f:
+                json.dump(items, f, ensure_ascii=False, indent=2)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp_path, self._instances_path)
+        except Exception:
+            try:
+                if os.path.exists(tmp_path):
+                    os.remove(tmp_path)
+            except Exception:
+                pass

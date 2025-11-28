@@ -3,9 +3,12 @@ import logging
 from openai import OpenAI
 
 class AIAssistant:
-    def __init__(self, api_key, base_url="https://api-inference.modelscope.cn/v1/"):
+    def __init__(self, api_key, base_url="https://api-inference.modelscope.cn/v1/", model="deepseek-ai/DeepSeek-V3.1", temperature=0.1, max_tokens=1000):
         self.client = OpenAI(api_key=api_key, base_url=base_url)
         self.logger = logging.getLogger('ai_assistant')
+        self.model = model
+        self.temperature = temperature
+        self.max_tokens = max_tokens
         self.logger.info("✅ AI助手初始化完成")
     
     def extract_choice_intelligent(self, answer_text, question_type="single"):
@@ -69,7 +72,7 @@ class AIAssistant:
         
         try:
             response = self.client.chat.completions.create(
-                model="deepseek-ai/DeepSeek-V3.1",
+                model=self.model,
                 messages=[
                     {
                         'role': 'system',
@@ -80,8 +83,8 @@ class AIAssistant:
                         'content': prompt
                     }
                 ],
-                temperature=0.1,  # 低随机性确保稳定
-                max_tokens=1000
+                temperature=self.temperature,
+                max_tokens=self.max_tokens
             )
             
             answer = response.choices[0].message.content

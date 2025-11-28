@@ -1,6 +1,7 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import os
+import sys
 import logging
 from scripts.browser_manager import BrowserManager
 
@@ -10,6 +11,23 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[logging.StreamHandler()]
 )
+
+try:
+    if os.name == 'nt':
+        import ctypes
+        ctypes.windll.kernel32.SetConsoleOutputCP(65001)
+        os.environ['PYTHONIOENCODING'] = 'utf-8'
+        try:
+            os.system('chcp 65001 >nul')
+        except Exception:
+            pass
+        try:
+            sys.stdout.reconfigure(encoding='utf-8')
+            sys.stderr.reconfigure(encoding='utf-8')
+        except Exception:
+            pass
+except Exception:
+    pass
 
 app = Flask(__name__)
 CORS(app)  # 允许跨域
@@ -200,32 +218,83 @@ def stop_all():
 def get_question_bank_stats():
     """获取题库统计"""
     try:
-        # 获取第一个浏览器的题库统计（所有浏览器共享同一个题库文件）
-        if manager.browsers:
-            first_browser = list(manager.browsers.values())[0]
-            stats = first_browser.question_bank.get_stats()
-            return jsonify({
-                "success": True,
-                "stats": stats
-            })
-        else:
-            return jsonify({
-                "success": True,
-                "stats": {"total_questions": 0, "last_updated": ""}
-            })
+        stats = manager.question_bank.get_stats()
+        return jsonify({
+            "success": True,
+            "stats": stats
+        })
     except Exception as e:
         return jsonify({
             "success": False,
             "error": str(e)
         }), 500
 
+@app.route('/api/question-bank/items', methods=['GET'])
+def get_question_bank_items():
+    try:
+        items = []
+        for qid, q in manager.question_bank.questions.items():
+            items.append({
+                'id': qid,
+                'text': q.get('text'),
+                'answer': q.get('answer'),
+                'type': q.get('type'),
+                'add_time': q.get('add_time'),
+                'source': '题库'
+            })
+        return jsonify({
+            'success': True,
+            'questions': items,
+            'total': len(items)
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/question-bank/search', methods=['GET'])
+def search_question_bank():
+    try:
+        query = (request.args.get('query') or '').strip()
+        items = []
+        for qid, q in manager.question_bank.questions.items():
+            text = q.get('text') or ''
+            answer = q.get('answer') or ''
+            if not query or (query.lower() in text.lower() or query.lower() in answer.lower()):
+                items.append({
+                    'id': qid,
+                    'text': text,
+                    'answer': answer,
+                    'type': q.get('type'),
+                    'add_time': q.get('add_time'),
+                    'source': '题库'
+                })
+        return jsonify({'success': True, 'questions': items, 'total': len(items)})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/question-bank/<question_id>', methods=['DELETE'])
+def delete_question(question_id):
+    try:
+        if question_id in manager.question_bank.questions:
+            del manager.question_bank.questions[question_id]
+            manager.question_bank.save_questions()
+            return jsonify({'success': True})
+        return jsonify({'success': False, 'error': '题目不存在'}), 404
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/question-bank/export', methods=['GET'])
+def export_question_bank():
+    try:
+        return jsonify({'success': True, 'data': manager.question_bank.questions})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
 @app.route('/api/logs', methods=['GET'])
 def get_logs():
     """获取日志信息（简化版）"""
     try:
-        # 这里可以返回最近的操作日志
         logs = []
-        for browser_id, browser in manager.browsers.items():
+        for browser_id, browser in list(manager.browsers.items()):
             logs.append({
                 "browser_id": browser_id,
                 "status": browser.status,

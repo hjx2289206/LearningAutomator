@@ -53,7 +53,7 @@ interface HealthData {
   version: string
 }
 
-const statusText = ref('检查服务...')
+const statusText = ref('检查后端服务...')
 const statusClass = ref('status-offline')
 const healthData = ref<HealthData | null>(null)
 
@@ -64,14 +64,14 @@ const checkHealth = async () => {
     healthData.value = data
 
     if (data.status === 'ok') {
-      statusText.value = '服务正常'
+      statusText.value = '后端服务正常'
       statusClass.value = 'status-online'
     } else {
-      statusText.value = '服务异常'
+      statusText.value = '后端服务异常'
       statusClass.value = 'status-error'
     }
   } catch (error) {
-    statusText.value = '服务离线'
+    statusText.value = '后端服务离线'
     statusClass.value = 'status-offline'
     healthData.value = null
   }
@@ -157,7 +157,7 @@ onUnmounted(() => {
 
 .status-indicator {
   padding: 8px 12px;
-  border-radius: 6px;
+  border-radius: 10px;
   font-size: 12px;
   font-weight: 500;
   text-align: center;

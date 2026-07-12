@@ -10,6 +10,7 @@ const INSTANCES_PATH = path.join(__dirname, '..', '..', 'instances.json')
 const DEFAULT_CONFIG = {
   chrome_path: '',
   user_data_dir: 'user_data',
+  auto_mute: true,
   login_url: 'https://rsjapp.mianyang.cn/jxjy/pc/member/login.jhtml',
   max_learning_attempts: 100,
   learning_check_interval: 10,

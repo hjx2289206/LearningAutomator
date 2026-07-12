@@ -42,6 +42,10 @@
           <input type="text" v-model="cfg.login_url" />
         </div>
         <div class="field">
+          <label>课程页面 URL</label>
+          <input type="text" v-model="cfg.course_url" placeholder="https://rsjapp.mianyang.cn/jxjy/pc/wdkc_1646108788000/index.jhtml" />
+        </div>
+        <div class="field">
           <label>最大尝试次数</label>
           <input type="number" v-model.number="cfg.max_learning_attempts" min="1" />
         </div>
@@ -68,6 +72,9 @@
         <div class="field">
           <label class="cb-label"><input type="checkbox" v-model="cfg.miaoke_enabled" /> 启用秒课</label>
         </div>
+        <div class="field">
+          <label class="cb-label"><input type="checkbox" v-model="cfg.auto_mute" /> 自动静音 (学习时关闭视频声音)</label>
+        </div>
       </section>
     </div>
   </div>
@@ -82,9 +89,10 @@ interface Cfg { [key: string]: any }
 const cfg = ref<Cfg>({
   chrome_path: '', user_data_dir: 'user_data', window_size: '1200,800', headless_mode: false,
   login_url: 'https://rsjapp.mianyang.cn/jxjy/pc/member/login.jhtml',
+  course_url: 'https://rsjapp.mianyang.cn/jxjy/pc/wdkc_1646108788000/index.jhtml',
   max_learning_attempts: 100, learning_check_interval: 10, monitor_interval: 10, max_monitor_time: 3600,
   learning_page_keywords: ['在线学习','学习','课程','视频','jxjy'],
-  learning_url_keywords: ['/jxjy/','/pc/'], miaoke_enabled: true,
+  learning_url_keywords: ['/jxjy/','/pc/'], miaoke_enabled: true, auto_mute: true,
 })
 const loading = ref(true)
 const saving = ref(false)

@@ -1,141 +1,204 @@
 export class LearningAutomation {
   constructor(instance) {
     this.instance = instance
+    this._learningStartedAt = null
   }
 
   async startLearning() {
     const inst = this.instance
-    if (!inst.isDriverAlive()) {
-      inst.status = '刷课失败'
-      inst.currentAction = '浏览器未连接或已关闭'
-      return false
-    }
+    if (!inst.isDriverAlive()) return false
 
-    inst.status = '刷课中'
-    inst.currentAction = '开始检测视频进度'
+    this._learningStartedAt = Date.now()
+
+    if (inst.config.auto_mute) await inst._muteAllMedia()
+    inst.status = '学习页分析中'
+    inst.currentAction = '正在分析页面视频...'
+    await inst._sleep(3000)
+
+    // 滚动页面
+    try { await inst.page.evaluate(() => window.scrollTo(0, 200)) } catch (_) {}
+    await inst._sleep(2000)
 
     let stats = await this._getVideoStats()
     if (stats.total === 0) {
       inst.currentAction = '未找到视频，等待页面加载...'
       await inst._sleep(10000)
       stats = await this._getVideoStats()
-      if (stats.total === 0) {
-        inst.currentAction = '未检测到视频内容'
-        return false
-      }
+      if (stats.total === 0) { inst.currentAction = '未检测到视频内容'; return false }
     }
 
-    this._updateProgress(stats)
-    const maxAttempts = inst.config.max_learning_attempts || 100
-    const checkInterval = (inst.config.learning_check_interval || 10) * 1000
+    const total = stats.total
+    let attempts = 0
+    const maxAttempts = total * 2
 
-    for (let i = 0; i < maxAttempts; i++) {
-      if (!inst.isRunning) break
-      if (!inst.isDriverAlive()) {
-        inst.status = '刷课失败'
-        inst.currentAction = '浏览器已关闭或驱动断开'
-        break
-      }
-
+    // 第一个视频自动播放，直接秒课
+    if (stats.incomplete > 0) {
+      if (inst.config.auto_mute) await inst._muteAllMedia()
+      inst.currentAction = '第一个视频已自动播放，正在秒课...'
+      await this._learnVideo(null, 1, total, true)
+      await inst._sleep(10000)
       stats = await this._getVideoStats()
       this._updateProgress(stats)
-
-      inst.currentAction = `刷课进度: ${stats.completed}/${stats.total} (${stats.percentage}%)`
-
-      if (stats.completed >= stats.total) {
-        inst.status = '刷课完成'
-        inst.currentAction = '所有课程已完成！'
-        return true
-      }
-
-      const ok = await this._miaoke()
-      inst.currentAction = ok
-        ? `秒课成功 - 进度: ${stats.completed}/${stats.total}`
-        : `秒课失败，等待重试 - 进度: ${stats.completed}/${stats.total}`
-
-      // 检查是否有视频需要切到下一个
-      if (stats.completed > 0 && stats.currentVideoDone) {
-        await this._clickNextVideo(stats)
-      }
-
-      await inst._sleep(checkInterval)
     }
 
-    inst.status = '刷课完成'
-    inst.currentAction = `刷课结束 - 最终进度: ${inst.progress.current}/${inst.progress.total}`
+    // 处理剩余视频（从第二个开始，逐个点击）
+    while (this.instance.isRunning && attempts < maxAttempts && stats.incomplete > 0) {
+      attempts++
+      const next = await this._findNextIncomplete()
+      if (!next) {
+        inst.currentAction = '未找到未完成视频，重新检查...'
+        await inst._sleep(8000)
+        stats = await this._getVideoStats()
+        this._updateProgress(stats)
+        continue
+      }
+
+      if (inst.config.auto_mute) await inst._muteAllMedia()
+      inst.currentAction = `学习第 ${stats.completed + 1}/${total} 个视频...`
+      await this._learnVideo(next.index, stats.completed + 1, total, false)
+      await inst._sleep(10000)
+      stats = await this._getVideoStats()
+      this._updateProgress(stats)
+    }
+
+    if (stats.completed >= total) {
+      inst.status = '刷课完成'
+      inst.currentAction = `所有课程已完成！(${stats.completed}/${total})`
+    } else if (attempts >= maxAttempts) {
+      inst.status = '刷课完成'
+      inst.currentAction = `达到最大尝试次数 (${stats.completed}/${total})`
+    }
+
     return true
+  }
+
+  async _learnVideo(videoIndex, index, total, isFirst) {
+    const inst = this.instance
+    if (!isFirst && videoIndex != null) {
+      // 点击视频项
+      try {
+        await inst.page.evaluate((idx) => {
+          const items = document.querySelectorAll('.videoList li.title, li.title')
+          if (items[idx]) {
+            items[idx].scrollIntoView({ block: 'center', behavior: 'smooth' })
+          }
+        }, videoIndex)
+        await inst._sleep(1500)
+        await inst.page.evaluate((idx) => {
+          const items = document.querySelectorAll('.videoList li.title, li.title')
+          if (items[idx]) items[idx].click()
+        }, videoIndex)
+        await inst._sleep(5000)
+      } catch (e) {
+        console.error('点击视频项失败:', e.message)
+      }
+    }
+
+    // 等视频加载
+    await inst._sleep(3000)
+
+    // 秒课
+    await this._miaoke()
+    inst.currentAction = `已处理第 ${index}/${total} 个视频`
   }
 
   async _getVideoStats() {
     try {
       return await this.instance.page.evaluate(() => {
-        const videoItems = document.querySelectorAll('.videoList li.title, li.title')
-        const result = { total: 0, completed: 0, incomplete: 0, currentVideoDone: false }
-
-        for (const item of videoItems) {
-          const text = item.textContent || item.innerText || ''
-          result.total++
-          if (text.includes('已完成')) result.completed++
-          else result.incomplete++
+        const items = document.querySelectorAll('.videoList li.title, li.title')
+        let total = 0, completed = 0, incomplete = 0
+        for (const item of items) {
+          const text = (item.textContent || '').trim()
+          total++
+          if (text.includes('已完成')) completed++
+          else incomplete++
         }
-
-        // 检查当前正在播放的视频是否已到末尾
-        const videos = document.querySelectorAll('video')
-        if (videos.length > 0 && videos[0].duration) {
-          const v = videos[0]
-          result.currentVideoDone = (v.duration - v.currentTime) < 2
+        return {
+          total,
+          completed,
+          incomplete,
+          percentage: total > 0 ? Math.round(completed / total * 100) : 0,
         }
-
-        result.percentage = result.total > 0
-          ? Math.round((result.completed / result.total) * 100)
-          : 0
-        return result
       })
     } catch (_) {
-      return { total: 0, completed: 0, incomplete: 0, percentage: 0, currentVideoDone: false }
+      return { total: 0, completed: 0, incomplete: 0, percentage: 0 }
+    }
+  }
+
+  async _findNextIncomplete() {
+    try {
+      return await this.instance.page.evaluate(() => {
+        const items = document.querySelectorAll('.videoList li.title, li.title')
+        for (let i = 1; i < items.length; i++) {
+          const text = (items[i].textContent || '').trim()
+          if (text.includes('未完成')) return { index: i }
+        }
+        return null
+      })
+    } catch (_) {
+      return null
     }
   }
 
   async _miaoke() {
-    try {
-      return await this.instance.page.evaluate(() => {
+    for (let i = 0; i < 3; i++) {
+      const ok = await this.instance.page.evaluate(() => {
         const videos = document.querySelectorAll('video')
         if (videos.length === 0) return false
-        const video = videos[0]
-        if (video.duration && video.duration > 0) {
-          video.currentTime = video.duration - 1
-          if (video.paused) video.play().catch(() => {})
+        const v = videos[0]
+        if (v.duration && v.duration > 0) {
+          v.currentTime = v.duration - 1
+          if (v.paused) v.play().catch(() => {})
           return true
         }
         return false
       })
-    } catch (_) {
-      return false
+      if (ok) return true
+      await this.instance._sleep(5000)
     }
-  }
-
-  async _clickNextVideo(stats) {
-    try {
-      // 尝试点击"下一节"或类似按钮
-      await this.instance.page.evaluate(() => {
-        const btns = Array.from(document.querySelectorAll('a, button, span, div'))
-        for (const b of btns) {
-          const text = (b.textContent || '').trim()
-          if (text.includes('下一节') || text.includes('下一讲') || text.includes('继续')) {
-            b.click()
-            return true
-          }
-        }
-        return false
-      })
-    } catch (_) {}
+    return false
   }
 
   _updateProgress(stats) {
-    this.instance.progress = {
-      current: stats.completed,
-      total: stats.total,
-      percentage: stats.percentage,
+    const inst = this.instance
+    const completed = stats.completed
+    const total = stats.total
+    const percentage = stats.percentage
+
+    // 计算 ETA
+    let eta = null
+    let etaSeconds = null
+    if (this._learningStartedAt && completed > 0 && completed < total && percentage > 0) {
+      const elapsed = (Date.now() - this._learningStartedAt) / 1000
+      const avgPerVideo = elapsed / completed
+      const remaining = total - completed
+      etaSeconds = Math.round(avgPerVideo * remaining)
+      if (etaSeconds < 60) {
+        eta = `${etaSeconds}秒`
+      } else if (etaSeconds < 3600) {
+        const m = Math.floor(etaSeconds / 60)
+        const s = etaSeconds % 60
+        eta = `${m}分${s}秒`
+      } else {
+        const h = Math.floor(etaSeconds / 3600)
+        const m = Math.round((etaSeconds % 3600) / 60)
+        eta = `${h}小时${m}分`
+      }
+    } else if (completed >= total) {
+      if (this._learningStartedAt) {
+        const elapsed = Math.round((Date.now() - this._learningStartedAt) / 1000 / 60)
+        eta = `已完成 (耗时约${elapsed}分)`
+      } else {
+        eta = '已完成'
+      }
+    }
+
+    inst.progress = {
+      current: completed,
+      total,
+      percentage,
+      eta,
+      eta_seconds: etaSeconds,
     }
   }
 }

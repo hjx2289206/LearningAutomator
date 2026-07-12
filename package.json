@@ -1,15 +1,18 @@
 {
-  "name": "demo2",
-  "version": "0.0.0",
+  "name": "learning-automator",
+  "version": "1.0.0",
   "private": true,
-  "type": "module",
+  "description": "自动刷课工具 - 支持多实例/自动登录/秒课",
   "main": "electron/main.mjs",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
     "type-check": "vue-tsc --build",
-    "electron:dev": "electron ."
+    "electron:dev": "electron .",
+    "pack:mac": "pnpm build && electron-builder --mac",
+    "pack:win": "pnpm build && electron-builder --win",
+    "pack:all": "pnpm build && electron-builder --mac --win"
   },
   "dependencies": {
     "pinia": "^3.0.3",
@@ -26,6 +29,7 @@
     "@vue/eslint-config-typescript": "^14.6.0",
     "@vue/tsconfig": "^0.8.1",
     "electron": "^39.2.3",
+    "electron-builder": "^26.15.3",
     "eslint": "^9.37.0",
     "eslint-plugin-vue": "~10.5.0",
     "jiti": "^2.6.1",
@@ -39,6 +43,41 @@
     "onlyBuiltDependencies": [
       "electron",
       "esbuild"
+    ]
+  },
+  "build": {
+    "appId": "com.learningautomator.app",
+    "productName": "LearningAutomator",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "package.json"
+    ],
+    "asar": true,
+    "mac": {
+      "category": "public.app-category.utilities",
+      "target": [
+        { "target": "dmg", "arch": ["x64", "arm64"] },
+        { "target": "zip", "arch": ["x64", "arm64"] }
+      ],
+      "icon": "public/icon.icns"
+    },
+    "win": {
+      "target": [
+        { "target": "nsis", "arch": ["x64"] }
+      ],
+      "icon": "public/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "shortcutName": "LearningAutomator"
+    },
+    "asarUnpack": [
+      "node_modules/puppeteer-core/**"
     ]
   }
 }

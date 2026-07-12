@@ -33,10 +33,13 @@
         <div class="card-body">
           <p class="action-text">{{ b.current_action }}</p>
           <div v-if="b.progress && b.progress.total > 0" class="progress-block">
+            <div class="progress-header">
+              <span class="progress-label">{{ b.progress.current }}/{{ b.progress.total }} ({{ b.progress.percentage }}%)</span>
+              <span v-if="b.progress.eta" class="eta-text">{{ b.progress.eta }}</span>
+            </div>
             <div class="progress-track">
               <div class="progress-fill" :style="{ width: b.progress.percentage + '%' }"></div>
             </div>
-            <span class="progress-label">{{ b.progress.current }}/{{ b.progress.total }} ({{ b.progress.percentage }}%)</span>
           </div>
           <div v-if="b.current_url" class="url-text">{{ b.current_url }}</div>
         </div>
@@ -74,7 +77,7 @@ import { getBrowsers, createBrowser as apiCreate, startBrowser, stopBrowser, rem
 
 interface BrowserInst {
   browser_id: number; status: string; current_action: string
-  progress?: { current: number; total: number; percentage: number }
+  progress?: { current: number; total: number; percentage: number; eta?: string | null; eta_seconds?: number | null }
   current_url?: string; title?: string
 }
 
@@ -185,9 +188,11 @@ onUnmounted(() => clearInterval(interval))
 .url-text { font-size: 11px; color: #555; margin-top: 6px; word-break: break-all; }
 
 .progress-block { margin-top: 8px; }
+.progress-header { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 3px; }
+.eta-text { font-size: 11px; color: #4fc3f7; white-space: nowrap; font-weight: 500; }
+.progress-label { font-size: 11px; color: #667; }
 .progress-track { height: 4px; background: #1e1e3a; border-radius: 2px; overflow: hidden; margin-bottom: 4px; }
 .progress-fill { height: 100%; background: linear-gradient(90deg, #4fc3f7, #66bb6a); border-radius: 2px; transition: width .3s; }
-.progress-label { font-size: 11px; color: #667; }
 
 .card-actions { display: flex; gap: 6px; }
 

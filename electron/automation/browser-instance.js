@@ -128,33 +128,111 @@ export class BrowserInstance {
   }
 
   async _runLoop() {
-    while (this.isRunning) {
-      try {
-        this.status = '监控中'
-        this.currentAction = '正在扫描标签页，寻找学习页面...'
+    try {
+      // 1. 等待用户完成登录（URL 不再是 login）
+      await this._waitForLogin()
 
-        const tabInfo = await this.tabMonitor.startMonitoring()
-        if (!tabInfo || !this.isRunning) break
+      // 2. 进入课程页面，点击"开始学习"，切换到学习标签页
+      const ok = await this._enterCourseAndLearn()
+      if (!ok || !this.isRunning) return
 
-        this._lastTitle = tabInfo.title
-        console.log(`[实例#${this.id}] 检测到学习页面: ${tabInfo.title} (${tabInfo.url})`)
-        await this._switchToTab(tabInfo)
-
-        if (tabInfo.type === 'learning') {
-          await this.learningAutomation.startLearning()
-        }
-
-        if (this.isRunning) {
-          this.status = '任务完成，继续监控'
-          this.currentAction = '等待新的学习页面'
-          await this._sleep(5000)
-        }
-      } catch (e) {
-        if (!this.isRunning) break
-        this.currentAction = `主循环出错: ${e.message}`
-        await this._sleep(10000)
+      // 3. 开始刷课
+      await this.learningAutomation.startLearning()
+    } catch (e) {
+      if (this.isRunning) {
+        this.currentAction = `运行出错: ${e.message}`
+        console.error(`[实例#${this.id}]`, e)
       }
     }
+  }
+
+  async _waitForLogin() {
+    const loginUrl = this.config.login_url || 'https://rsjapp.mianyang.cn/jxjy/pc/member/login.jhtml'
+    const maxWait = (this.config.login_timeout || 600) * 1000
+    const interval = 3000
+    const started = Date.now()
+
+    this.status = '等待登录'
+    this.currentAction = '请完成登录，登录后将自动进入课程'
+
+    while (this.isRunning && Date.now() - started < maxWait) {
+      let currentUrl = ''
+      try { currentUrl = this.page.url() } catch (_) {}
+      if (currentUrl && !currentUrl.includes('login') && !currentUrl.includes('/member/')) {
+        this.currentAction = '登录完成，准备进入课程...'
+        await this._sleep(2000)
+        return
+      }
+      await this._sleep(interval)
+    }
+  }
+
+  async _enterCourseAndLearn() {
+    const courseUrl = this.config.course_url || 'https://rsjapp.mianyang.cn/jxjy/pc/wdkc_1646108788000/index.jhtml'
+    this.status = '导航中'
+    this.currentAction = '正在进入课程页面...'
+
+    await this.page.goto(courseUrl, { waitUntil: 'networkidle2', timeout: 30000 })
+    await this._sleep(3000)
+
+    // 查找"开始学习"或"继续学习"按钮
+    this.currentAction = '正在查找课程入口...'
+    const clicked = await this.page.evaluate(() => {
+      const btns = Array.from(document.querySelectorAll('a'))
+      for (const btn of btns) {
+        const text = (btn.textContent || '').trim()
+        if (text.includes('开始学习') || text.includes('继续学习')) {
+          btn.click()
+          return true
+        }
+      }
+      return false
+    })
+
+    if (!clicked) {
+      this.currentAction = '未找到"开始学习"/"继续学习"按钮'
+      return false
+    }
+
+    this.currentAction = '已点击课程，等待学习页面打开...'
+    await this._sleep(5000)
+
+    // 等待新标签页打开并切换
+    const learningPage = await this._waitForLearningTab(30000)
+    if (learningPage) {
+      this.page = learningPage
+      await learningPage.bringToFront()
+      this._lastTitle = await learningPage.title()
+      this.status = '已进入学习页'
+      this.currentAction = `进入学习页面: ${this._lastTitle}`
+      await this._muteAllMedia()
+      return true
+    }
+
+    this.currentAction = '未能检测到学习页面标签'
+    return false
+  }
+
+  async _waitForLearningTab(timeout) {
+    const started = Date.now()
+    while (this.isRunning && Date.now() - started < timeout) {
+      const pages = await this.browser.pages()
+      for (const p of pages) {
+        try {
+          const url = p.url()
+          const title = await p.title()
+          if (url.includes('chrome://') || url.includes('about:')) continue
+          if (url.includes('login') || title.includes('登录')) continue
+          if (title.includes('首页') || title.includes('个人中心') || title.includes('dashboard')) continue
+          // 新打开的标签页（非原始课程入口页、非登录页）视为学习页面
+          if (url !== this.page.url() && p !== this.page) {
+            return p
+          }
+        } catch (_) {}
+      }
+      await this._sleep(2000)
+    }
+    return null
   }
 
   async _switchToTab(tabInfo) {
@@ -198,10 +276,33 @@ export class BrowserInstance {
       browser_id: this.id,
       status: this.status,
       current_action: this.currentAction,
-      progress: { current: this.progress.current, total: this.progress.total, percentage: this.progress.percentage },
+      progress: { ...this.progress },
       current_url: currentUrl,
       title: this._lastTitle || null,
     }
+  }
+
+
+  async _muteAllMedia() {
+    if (!this.config.auto_mute) return
+    try {
+      await this.page.evaluate(() => {
+        const muteAll = () => {
+          document.querySelectorAll("video, audio").forEach(el => {
+            el.muted = true
+            el.volume = 0
+          })
+        }
+        muteAll()
+        if (!window.__muteObserverInstalled) {
+          window.__muteObserverInstalled = true
+          new MutationObserver(muteAll).observe(document.body || document.documentElement, {
+            childList: true, subtree: true
+          })
+        }
+      })
+    } catch (_) {}
+
   }
   _sleep(ms) {
     return new Promise(r => setTimeout(r, ms))

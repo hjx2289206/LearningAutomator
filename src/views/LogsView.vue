@@ -1,378 +1,148 @@
 <template>
-  <div class="logs-view">
+  <div class="logs">
     <div class="page-header">
-      <h1>操作日志</h1>
+      <h1>运行日志</h1>
       <div class="header-actions">
-        <button class="btn btn-secondary" @click="loadLogs">🔄 刷新</button>
-        <button class="btn btn-outline" @click="clearLogs">🗑️ 清空日志</button>
-        <button class="btn btn-primary" @click="exportLogs">📤 导出日志</button>
+        <button class="btn btn-ghost" @click="loadData">
+          <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+          刷新
+        </button>
+        <button class="btn btn-ghost" @click="clearLogs">清空</button>
       </div>
     </div>
 
-    <div class="logs-controls">
-      <div class="filter-group">
-        <label>实例筛选:</label>
-        <select v-model="filterBrowserId">
-          <option value="">全部实例</option>
-          <option v-for="browser in browsers" :key="browser.browser_id" :value="browser.browser_id">
-            实例 #{{ browser.browser_id }}
-          </option>
-        </select>
-      </div>
-
-      <div class="filter-group">
-        <label>状态筛选:</label>
-        <select v-model="filterStatus">
-          <option value="">全部状态</option>
-          <option value="运行中">运行中</option>
-          <option value="刷课中">刷课中</option>
-          <option value="等待登录">等待登录</option>
-          <option value="已完成">已完成</option>
-          <option value="错误">错误</option>
-        </select>
-      </div>
+    <div class="filters">
+      <select v-model="filterId">
+        <option value="">全部实例</option>
+        <option v-for="id in instanceIds" :key="id" :value="id">实例 #{{ id }}</option>
+      </select>
+      <select v-model="filterStatus">
+        <option value="">全部状态</option>
+        <option value="运行中">运行中</option>
+        <option value="刷课中">刷课中</option>
+        <option value="等待登录">等待登录</option>
+        <option value="已完成">已完成</option>
+        <option value="错误">错误</option>
+      </select>
     </div>
 
-    <div class="logs-container">
-      <div
-        v-for="log in filteredLogs"
-        :key="log.timestamp"
-        class="log-item"
-        :class="getLogItemClass(log.status)"
-      >
-        <div class="log-header">
-          <span class="log-browser">实例 #{{ log.browser_id }}</span>
-          <span class="log-timestamp">{{ formatTime(log.timestamp) }}</span>
-        </div>
-
-        <div class="log-content">
-          <div class="log-status">{{ log.status }}</div>
-          <div class="log-action">{{ log.current_action }}</div>
-
-          <div v-if="log.progress && log.progress.total > 0" class="log-progress">
-            <div class="progress-bar">
-              <div class="progress-fill" :style="{ width: log.progress.percentage + '%' }"></div>
-            </div>
-            <span class="progress-text">
-              {{ log.progress.current }}/{{ log.progress.total }} ({{ log.progress.percentage }}%)
-            </span>
-          </div>
-        </div>
+    <div class="log-panel" ref="panelRef">
+      <div v-for="(entry, i) in filtered" :key="i" class="log-entry" :class="levelClass(entry.status)">
+        <span class="log-time">{{ formatTime(entry.timestamp) }}</span>
+        <span class="log-instance">#{{ entry.browser_id }}</span>
+        <span class="log-level" :class="levelClass(entry.status)">{{ levelLabel(entry.status) }}</span>
+        <span class="log-msg">{{ entry.current_action }}</span>
+        <span v-if="entry.progress && entry.progress.total > 0" class="log-progress">
+          {{ entry.progress.current }}/{{ entry.progress.total }}
+        </span>
       </div>
-
-      <div v-if="filteredLogs.length === 0" class="empty-logs">
-        <div class="empty-icon">📋</div>
-        <div class="empty-text">暂无日志记录</div>
-      </div>
+      <div v-if="filtered.length === 0" class="empty-logs">暂无日志</div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { logService, browserService } from '@/services/api'
+import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
+import { getBrowsers } from '@/services/api'
 
 interface LogEntry {
-  browser_id: number
-  status: string
-  current_action: string
-  progress?: {
-    current: number
-    total: number
-    percentage: number
-  }
-  timestamp: number
+  browser_id: number; status: string; current_action: string
+  progress?: { current: number; total: number; percentage: number }; timestamp: number
 }
+interface BrowserRow { browser_id: number; status: string; current_action: string; progress?: { current: number; total: number; percentage: number } }
 
-interface BrowserInstance {
-  browser_id: number
-  status: string
-}
-
-const logs = ref<LogEntry[]>([])
-const browsers = ref<BrowserInstance[]>([])
-const filterBrowserId = ref('')
+const history = ref<LogEntry[]>([])
+const filterId = ref<string | number>('')
 const filterStatus = ref('')
+const panelRef = ref<HTMLElement | null>(null)
+let interval: number
 
-const loadLogs = async () => {
+const instanceIds = computed(() => {
+  const ids = new Set(history.value.map(e => e.browser_id))
+  return Array.from(ids).sort((a,b) => a - b)
+})
+
+async function loadData() {
   try {
-    await logService.init()
-    const items = await logService.getLogs()
-    logs.value = items.map((log: any) => ({ ...log, timestamp: Date.now() }))
-  } catch (error) {
-    console.error('加载日志失败:', error)
-  }
+    const list: BrowserRow[] = await getBrowsers()
+    const now = Date.now()
+    for (const b of list) {
+      const last = history.value[history.value.length - 1]
+      const same = last && last.browser_id === b.browser_id && last.status === b.status && last.current_action === b.current_action
+      if (!same || (now - last.timestamp) > 10000) {
+        history.value.push({
+          browser_id: b.browser_id, status: b.status,
+          current_action: b.current_action,
+          progress: b.progress, timestamp: now,
+        })
+      }
+    }
+    if (history.value.length > 500) history.value = history.value.slice(-500)
+    await nextTick()
+    if (panelRef.value) panelRef.value.scrollTop = panelRef.value.scrollHeight
+  } catch(e) { console.warn('日志加载失败:', e) }
 }
 
-const loadBrowsers = async () => {
-  try {
-    await browserService.init()
-    browsers.value = await browserService.getBrowsers()
-  } catch (error) {
-    console.error('加载浏览器实例失败:', error)
-  }
-}
-
-const clearLogs = () => {
-  if (confirm('确定要清空所有日志吗？')) {
-    logs.value = []
-  }
-}
-
-const exportLogs = () => {
-  alert('导出日志功能待实现')
-}
-
-const formatTime = (timestamp: number) => {
-  return new Date(timestamp).toLocaleString('zh-CN')
-}
-
-const getLogItemClass = (status: string) => {
-  const statusMap: { [key: string]: string } = {
-    运行中: 'log-running',
-    刷课中: 'log-learning',
-    等待登录: 'log-waiting',
-    已完成: 'log-completed',
-    错误: 'log-error',
-  }
-  return statusMap[status] || 'log-default'
-}
-
-const filteredLogs = computed(() => {
-  let filtered = logs.value
-
-  if (filterBrowserId.value) {
-    filtered = filtered.filter((log) => log.browser_id === parseInt(filterBrowserId.value))
-  }
-
-  if (filterStatus.value) {
-    filtered = filtered.filter((log) => log.status === filterStatus.value)
-  }
-
-  return filtered
+const filtered = computed(() => {
+  let items = history.value
+  if (filterId.value !== '') items = items.filter(e => e.browser_id === Number(filterId.value))
+  if (filterStatus.value) items = items.filter(e => e.status === filterStatus.value)
+  return items.slice(-200)
 })
 
-let refreshInterval: number
+function clearLogs() { history.value = [] }
+function formatTime(ts: number) { return new Date(ts).toLocaleTimeString('zh-CN') }
+function levelClass(s: string) {
+  const m: Record<string, string> = { '运行中': 'l-info', '刷课中': 'l-learning', '等待登录': 'l-warn', '已完成': 'l-ok', '错误': 'l-err' }
+  return m[s] || 'l-info'
+}
+function levelLabel(s: string) {
+  const m: Record<string, string> = { '运行中': 'INFO', '刷课中': 'LEARN', '等待登录': 'WAIT', '已完成': 'DONE', '错误': 'ERROR' }
+  return m[s] || 'INFO'
+}
 
-onMounted(async () => {
-  await loadBrowsers()
-  await loadLogs()
-  refreshInterval = setInterval(loadLogs, 3000)
-})
-
-onUnmounted(() => {
-  clearInterval(refreshInterval)
-})
+onMounted(() => { loadData(); interval = setInterval(loadData, 3000) })
+onUnmounted(() => clearInterval(interval))
 </script>
 
 <style scoped>
-.logs-view {
-  padding: 20px;
+.logs { padding: 28px 32px; max-width: 1100px; }
+.page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+.page-header h1 { font-size: 22px; font-weight: 600; color: #e0e0e0; }
+.header-actions { display: flex; gap: 8px; }
+
+.filters { display: flex; gap: 10px; margin-bottom: 14px; }
+.filters select {
+  padding: 6px 12px; border: 1px solid #2a2a4a; border-radius: 6px;
+  background: #16163a; color: #c0c8e0; font-size: 12px; min-width: 120px;
 }
 
-.page-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 30px;
+.log-panel {
+  background: #12122a; border: 1px solid #1e1e3a; border-radius: 8px;
+  max-height: 500px; overflow-y: auto; font-family: 'SF Mono', 'Fira Code', monospace; font-size: 12px;
 }
+.log-entry {
+  display: flex; align-items: center; gap: 12px; padding: 6px 14px;
+  border-bottom: 1px solid #1a1a2e; line-height: 1.5;
+}
+.log-entry:hover { background: rgba(255,255,255,.02); }
 
-.page-header h1 {
-  color: #2c3e50;
-  font-size: 24px;
-}
+.log-time { color: #555; white-space: nowrap; min-width: 80px; }
+.log-instance { color: #667; font-weight: 600; min-width: 50px; }
+.log-level { padding: 1px 6px; border-radius: 3px; font-size: 10px; font-weight: 700; white-space: nowrap; }
+.l-info .log-level, .l-info { --c: #8890b0; } .l-info .log-level { background: rgba(136,144,176,.15); color: #8890b0; }
+.l-learning { --c: #4fc3f7; } .l-learning .log-level { background: rgba(79,195,247,.15); color: #4fc3f7; }
+.l-warn { --c: #ffa726; } .l-warn .log-level { background: rgba(255,167,38,.15); color: #ffa726; }
+.l-ok { --c: #66bb6a; } .l-ok .log-level { background: rgba(102,187,106,.15); color: #66bb6a; }
+.l-err { --c: #e74c3c; } .l-err .log-level { background: rgba(231,76,60,.15); color: #e74c3c; }
 
-.header-actions {
-  display: flex;
-  gap: 10px;
-}
+.log-msg { color: #c0c8e0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.log-progress { color: #4fc3f7; white-space: nowrap; }
 
-.logs-controls {
-  display: flex;
-  gap: 20px;
-  margin-bottom: 20px;
-  padding: 16px;
-  background: white;
-  border-radius: 8px;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
-}
+.empty-logs { padding: 40px; text-align: center; color: #555; }
 
-.filter-group {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.filter-group label {
-  font-weight: 500;
-  color: #2c3e50;
-  white-space: nowrap;
-}
-
-.filter-group select {
-  padding: 8px 12px;
-  border: 1px solid #bdc3c7;
-  border-radius: 4px;
-  background: white;
-  min-width: 120px;
-}
-
-.logs-container {
-  max-height: 600px;
-  overflow-y: auto;
-}
-
-.log-item {
-  background: white;
-  border-radius: 8px;
-  padding: 16px;
-  margin-bottom: 12px;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
-  border-left: 4px solid #bdc3c7;
-}
-
-.log-item.log-running {
-  border-left-color: #27ae60;
-}
-
-.log-item.log-learning {
-  border-left-color: #3498db;
-}
-
-.log-item.log-waiting {
-  border-left-color: #f39c12;
-}
-
-.log-item.log-completed {
-  border-left-color: #2ecc71;
-}
-
-.log-item.log-error {
-  border-left-color: #e74c3c;
-}
-
-.log-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 8px;
-}
-
-.log-browser {
-  font-weight: 600;
-  color: #2c3e50;
-  font-size: 14px;
-}
-
-.log-timestamp {
-  color: #7f8c8d;
-  font-size: 12px;
-}
-
-.log-content {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.log-status {
-  font-weight: 600;
-  font-size: 14px;
-}
-
-.log-running .log-status {
-  color: #27ae60;
-}
-
-.log-learning .log-status {
-  color: #3498db;
-}
-
-.log-waiting .log-status {
-  color: #f39c12;
-}
-
-.log-completed .log-status {
-  color: #2ecc71;
-}
-
-.log-error .log-status {
-  color: #e74c3c;
-}
-
-.log-action {
-  color: #2c3e50;
-  font-size: 14px;
-}
-
-.log-progress {
-  margin-top: 8px;
-}
-
-.progress-bar {
-  width: 100%;
-  height: 6px;
-  background: #ecf0f1;
-  border-radius: 3px;
-  overflow: hidden;
-  margin-bottom: 4px;
-}
-
-.progress-fill {
-  height: 100%;
-  background: #3498db;
-  transition: width 0.3s ease;
-}
-
-.progress-text {
-  font-size: 12px;
-  color: #7f8c8d;
-}
-
-.empty-logs {
-  padding: 60px 20px;
-  text-align: center;
-  background: white;
-  border-radius: 8px;
-  color: #7f8c8d;
-}
-
-.empty-icon {
-  font-size: 48px;
-  margin-bottom: 16px;
-}
-
-.empty-text {
-  font-size: 16px;
-}
-
-.btn {
-  padding: 8px 16px;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 14px;
-  transition: all 0.3s ease;
-}
-
-.btn-primary {
-  background: #3498db;
-  color: white;
-}
-
-.btn-secondary {
-  background: #95a5a6;
-  color: white;
-}
-
-.btn-outline {
-  background: transparent;
-  border: 1px solid #e74c3c;
-  color: #e74c3c;
-}
-
-.btn:hover {
-  opacity: 0.9;
-  transform: translateY(-1px);
-}
+.btn { display: inline-flex; align-items: center; gap: 5px; padding: 7px 14px; border: none; border-radius: 6px; font-size: 13px; cursor: pointer; transition: all .15s; font-weight: 500; }
+.btn-ghost { background: rgba(255,255,255,.06); color: #8890b0; }
+.btn-ghost:hover { background: rgba(255,255,255,.1); color: #c0c8e0; }
+.btn-icon { width: 14px; height: 14px; flex-shrink: 0; }
 </style>

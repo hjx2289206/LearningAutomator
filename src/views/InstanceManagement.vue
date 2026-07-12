@@ -1,82 +1,67 @@
 <template>
-  <div class="instance-management">
+  <div class="instance-mgmt">
     <div class="page-header">
-      <h1>浏览器实例管理</h1>
+      <h1>实例管理</h1>
       <div class="header-actions">
-        <button class="btn btn-primary" @click="createBrowser">+ 创建新实例</button>
-        <button class="btn btn-secondary" @click="stopAllBrowsers">⏹️ 停止所有实例</button>
-        <button class="btn btn-outline" @click="() => { void loadBrowsers() }">🔄 刷新</button>
+        <button class="btn btn-primary" @click="createBrowser">+ 新建实例</button>
+        <button class="btn btn-ghost" @click="stopAll">停止全部</button>
+        <button class="btn btn-ghost" @click="loadBrowsers">
+          <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+          刷新
+        </button>
       </div>
     </div>
 
-    <div v-if="loading" class="loading-state">
-      <div class="loading-spinner"></div>
+    <div v-if="loading" class="state-box">
+      <div class="spinner"></div>
       <div>加载中...</div>
     </div>
 
-    <div v-else-if="error" class="error-state">
-      <div class="error-icon">⚠️</div>
-      <div class="error-message">{{ error }}</div>
-      <button class="btn btn-primary" @click="() => { void loadBrowsers() }">重试</button>
+    <div v-else-if="error" class="state-box error">
+      <div class="state-icon">!</div>
+      <div>{{ error }}</div>
+      <button class="btn btn-primary" @click="loadBrowsers">重试</button>
     </div>
 
     <div v-else class="instances-grid">
-      <div v-for="browser in browsers" :key="browser.browser_id" class="instance-card">
-        <div class="instance-header">
-          <h3>实例 #{{ browser.browser_id }}</h3>
-          <span class="status-badge" :class="getStatusClass(browser.status)">
-            {{ browser.status }}
-          </span>
+      <div v-for="b in browsers" :key="b.browser_id" class="instance-card" :class="cardClass(b.status)">
+        <div class="card-header">
+          <span class="instance-id">实例 #{{ b.browser_id }}</span>
+          <span class="status-chip" :class="statusClass(b.status)">{{ b.status }}</span>
         </div>
 
-        <div class="instance-info">
-          <p class="action-text">{{ browser.current_action }}</p>
-          <div class="progress-section" v-if="browser.progress && browser.progress.total > 0">
-            <div class="progress-bar">
-              <div
-                class="progress-fill"
-                :style="{ width: browser.progress.percentage + '%' }"
-              ></div>
+        <div class="card-body">
+          <p class="action-text">{{ b.current_action }}</p>
+          <div v-if="b.progress && b.progress.total > 0" class="progress-block">
+            <div class="progress-track">
+              <div class="progress-fill" :style="{ width: b.progress.percentage + '%' }"></div>
             </div>
-            <span class="progress-text">
-              {{ browser.progress.current }}/{{ browser.progress.total }} ({{
-                browser.progress.percentage
-              }}%)
-            </span>
+            <span class="progress-label">{{ b.progress.current }}/{{ b.progress.total }} ({{ b.progress.percentage }}%)</span>
           </div>
-          <div class="url-text" v-if="browser.current_url">
-            {{ browser.current_url }}
-          </div>
+          <div v-if="b.current_url" class="url-text">{{ b.current_url }}</div>
         </div>
 
-        <div class="instance-actions">
-          <button
-            class="btn btn-small btn-success"
-            @click="startBrowser(browser.browser_id)"
-            :disabled="browser.status === '运行中' || browser.status === '刷课中'"
-          >
-            ▶️ 启动
+        <div class="card-actions">
+          <button class="btn btn-sm btn-success" @click="start(b.browser_id)" :disabled="b.status === '运行中' || b.status === '刷课中'">
+            <svg class="btn-icon" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+            启动
           </button>
-          <button
-            class="btn btn-small btn-warning"
-            @click="stopBrowser(browser.browser_id)"
-            :disabled="browser.status === '已停止' || browser.status === '等待登录'"
-          >
-            ⏹️ 停止
+          <button class="btn btn-sm btn-warning" @click="stop(b.browser_id)" :disabled="b.status === '已停止' || b.status === '等待登录'">
+            <svg class="btn-icon" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+            停止
           </button>
-          <button
-            class="btn btn-small btn-danger"
-            @click="removeBrowser(browser.browser_id)"
-            :disabled="browser.status === '运行中' || browser.status === '刷课中'"
-          >
-            🗑️ 移除
+          <button class="btn btn-sm btn-danger" @click="remove(b.browser_id)" :disabled="b.status === '运行中' || b.status === '刷课中'">
+            <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+            移除
           </button>
         </div>
       </div>
 
-      <div v-if="browsers.length === 0" class="empty-state">
-        <div class="empty-icon">🖥️</div>
-        <div class="empty-text">暂无浏览器实例</div>
+      <div v-if="browsers.length === 0" class="state-box">
+        <svg class="empty-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>
+        </svg>
+        <div class="empty-label">暂无浏览器实例</div>
         <button class="btn btn-primary" @click="createBrowser">创建第一个实例</button>
       </div>
     </div>
@@ -85,365 +70,136 @@
 
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue'
-import { browserService } from '@/services/api'
+import { getBrowsers, createBrowser as apiCreate, startBrowser, stopBrowser, removeBrowser, stopAllBrowsers } from '@/services/api'
 
-interface BrowserInstance {
-  browser_id: number
-  status: string
-  current_action: string
-  progress?: {
-    current: number
-    total: number
-    percentage: number
-  }
-  current_url?: string
-  title?: string
+interface BrowserInst {
+  browser_id: number; status: string; current_action: string
+  progress?: { current: number; total: number; percentage: number }
+  current_url?: string; title?: string
 }
 
-const browsers = ref<BrowserInstance[]>([])
+const browsers = ref<BrowserInst[]>([])
 const loading = ref(true)
 const error = ref('')
-const hasLoadedOnce = ref(false)
+let hasLoaded = false
+let interval: number
 
-const loadBrowsers = async (initial = false) => {
+async function loadBrowsers(init = false) {
   try {
-    if (initial) {
-      loading.value = true
-      error.value = ''
-    }
-    await browserService.init()
-    const list = await browserService.getBrowsers()
-    browsers.value = list
-    hasLoadedOnce.value = true
-  } catch (err) {
-    // 初次加载失败才进入错误页；刷新失败仅记录日志，避免界面闪烁
-    if (!hasLoadedOnce.value) {
-      error.value = err instanceof Error ? err.message : '加载实例失败'
-    }
-    console.warn('刷新浏览器实例失败:', err)
+    if (init) { loading.value = true; error.value = '' }
+    browsers.value = await getBrowsers()
+    hasLoaded = true
+  } catch (e: any) {
+    if (!hasLoaded) error.value = e.message || '加载失败'
+    console.warn('刷新失败:', e)
   } finally {
-    if (initial) {
-      loading.value = false
-    }
+    if (init) loading.value = false
   }
 }
 
-const createBrowser = async () => {
-  try {
-    await browserService.createBrowser()
-    await loadBrowsers()
-  } catch (err) {
-    error.value = '创建浏览器实例失败'
-    console.error('创建浏览器实例失败:', err)
-  }
+async function createBrowser() {
+  try { await apiCreate(); await loadBrowsers() } catch (e) { console.error(e) }
 }
 
-const startBrowser = async (browserId: number) => {
-  try {
-    await browserService.startBrowser(browserId)
-    // 不立即重新加载，等待状态自动更新
-  } catch (err) {
-    error.value = '启动浏览器失败'
-    console.error('启动浏览器失败:', err)
-  }
+async function start(id: number) {
+  try { await startBrowser(id) } catch (e) { console.error(e) }
 }
 
-const stopBrowser = async (browserId: number) => {
-  try {
-    await browserService.stopBrowser(browserId)
-    // 不立即重新加载，等待状态自动更新
-  } catch (err) {
-    error.value = '停止浏览器失败'
-    console.error('停止浏览器失败:', err)
-  }
+async function stop(id: number) {
+  try { await stopBrowser(id) } catch (e) { console.error(e) }
 }
 
-const removeBrowser = async (browserId: number) => {
-  if (!confirm('确定要移除这个浏览器实例吗？')) return
-
-  try {
-    await browserService.removeBrowser(browserId)
-    await loadBrowsers()
-  } catch (err) {
-    error.value = '移除浏览器失败'
-    console.error('移除浏览器失败:', err)
-  }
+async function remove(id: number) {
+  if (!confirm('确定要移除这个实例吗？')) return
+  try { await removeBrowser(id); await loadBrowsers() } catch (e) { console.error(e) }
 }
 
-const stopAllBrowsers = async () => {
-  if (!confirm('确定要停止所有浏览器实例吗？')) return
-
-  try {
-    await browserService.stopAllBrowsers()
-    // 不立即重新加载，等待状态自动更新
-  } catch (err) {
-    error.value = '停止所有浏览器失败'
-    console.error('停止所有浏览器失败:', err)
-  }
+async function stopAll() {
+  if (!confirm('确定停止所有实例？')) return
+  try { await stopAllBrowsers() } catch (e) { console.error(e) }
 }
 
-const getStatusClass = (status: string) => {
-  const statusMap: { [key: string]: string } = {
-    运行中: 'status-running',
-    刷课中: 'status-learning',
-    等待登录: 'status-waiting',
-    已停止: 'status-stopped',
-    错误: 'status-error',
+function statusClass(s: string) {
+  const m: Record<string, string> = {
+    '运行中': 's-running', '刷课中': 's-learning', '等待登录': 's-waiting',
+    '已停止': 's-stopped', '错误': 's-error',
   }
-  return statusMap[status] || 'status-default'
+  return m[s] || 's-default'
 }
 
-let refreshInterval: number
-
-onMounted(async () => {
-  console.log('🔄 实例管理页面加载，测试后端连接...')
-
-  // 测试后端连接
-  try {
-    let port = 3001
-    try {
-      const p = await (window as any)?.electronAPI?.getBackendPort?.()
-      port = p ?? 3001
-    } catch (e) {
-      port = 3001
-    }
-    console.log('📡 获取到的后端端口:', port)
-
-    const response = await fetch(`http://localhost:${port}/api/health`)
-    const data = await response.json()
-    console.log('✅ 后端连接测试成功:', data)
-  } catch (error) {
-    console.error('❌ 后端连接测试失败:', error)
+function cardClass(s: string) {
+  const m: Record<string, string> = {
+    '运行中': 'border-green', '刷课中': 'border-blue', '等待登录': 'border-amber',
+    '已停止': 'border-slate', '错误': 'border-red',
   }
+  return m[s] || 'border-slate'
+}
 
-  await loadBrowsers(true)
-  refreshInterval = setInterval(() => loadBrowsers(false), 3000)
-})
-
-onUnmounted(() => {
-  clearInterval(refreshInterval)
-})
+onMounted(() => { loadBrowsers(true); interval = setInterval(() => loadBrowsers(), 3000) })
+onUnmounted(() => clearInterval(interval))
 </script>
 
 <style scoped>
-.loading-state,
-.error-state,
-.empty-state {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 60px 20px;
-  text-align: center;
-}
+.instance-mgmt { padding: 28px 32px; max-width: 1200px; }
+.page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
+.page-header h1 { font-size: 22px; font-weight: 600; color: #e0e0e0; }
+.header-actions { display: flex; gap: 8px; }
 
-.loading-spinner {
-  width: 40px;
-  height: 40px;
-  border: 4px solid #f3f3f3;
-  border-top: 4px solid #3498db;
-  border-radius: 50%;
-  animation: spin 1s linear infinite;
-  margin-bottom: 16px;
-}
+.state-box { display: flex; flex-direction: column; align-items: center; padding: 60px 0; color: #667; gap: 12px; }
+.state-box.error { color: #e74c3c; }
+.state-icon { width: 40px; height: 40px; border-radius: 50%; border: 2px solid #e74c3c; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 18px; }
+.empty-icon { width: 48px; height: 48px; color: #3a3a5a; }
+.empty-label { color: #667; }
 
-@keyframes spin {
-  0% {
-    transform: rotate(0deg);
-  }
-  100% {
-    transform: rotate(360deg);
-  }
-}
+.spinner { width: 28px; height: 28px; border: 3px solid #2a2a4a; border-top-color: #4fc3f7; border-radius: 50%; animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
 
-.error-icon,
-.empty-icon {
-  font-size: 48px;
-  margin-bottom: 16px;
-}
-
-.error-message,
-.empty-text {
-  font-size: 16px;
-  margin-bottom: 20px;
-  color: #7f8c8d;
-}
-
-.error-message {
-  color: #e74c3c;
-}
-
-.url-text {
-  font-size: 12px;
-  color: #7f8c8d;
-  margin-top: 8px;
-  word-break: break-all;
-}
-
-.instance-management {
-  padding: 20px;
-}
-
-.page-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 30px;
-}
-
-.page-header h1 {
-  color: #2c3e50;
-  font-size: 24px;
-}
-
-.header-actions {
-  display: flex;
-  gap: 10px;
-}
-
-.instances-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-  gap: 20px;
-}
+.instances-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; }
 
 .instance-card {
-  background: white;
+  background: #16163a;
   border-radius: 8px;
-  padding: 20px;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
-  border-left: 4px solid #3498db;
+  border: 1px solid #1e1e3a;
+  border-left: 4px solid #3a3a5a;
+  padding: 18px;
+  transition: border-color 0.2s;
 }
+.instance-card:hover { border-color: #2a2a5a; }
+.instance-card.border-green { border-left-color: #66bb6a; }
+.instance-card.border-blue { border-left-color: #4fc3f7; }
+.instance-card.border-amber { border-left-color: #ffa726; }
+.instance-card.border-slate { border-left-color: #3a3a5a; }
+.instance-card.border-red { border-left-color: #e74c3c; }
 
-.instance-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 15px;
-}
+.card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+.instance-id { font-weight: 600; font-size: 14px; color: #c0c8e0; }
+.status-chip { padding: 3px 10px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+.s-running { background: rgba(102,187,106,.18); color: #66bb6a; }
+.s-learning { background: rgba(79,195,247,.18); color: #4fc3f7; }
+.s-waiting { background: rgba(255,167,38,.18); color: #ffa726; }
+.s-stopped { background: rgba(255,255,255,.06); color: #667; }
+.s-error { background: rgba(231,76,60,.18); color: #e74c3c; }
 
-.instance-header h3 {
-  color: #2c3e50;
-  font-size: 16px;
-}
+.card-body { margin-bottom: 14px; }
+.action-text { font-size: 13px; color: #8890b0; margin-bottom: 6px; }
+.url-text { font-size: 11px; color: #555; margin-top: 6px; word-break: break-all; }
 
-.status-badge {
-  padding: 4px 8px;
-  border-radius: 4px;
-  font-size: 12px;
-  font-weight: 500;
-}
+.progress-block { margin-top: 8px; }
+.progress-track { height: 4px; background: #1e1e3a; border-radius: 2px; overflow: hidden; margin-bottom: 4px; }
+.progress-fill { height: 100%; background: linear-gradient(90deg, #4fc3f7, #66bb6a); border-radius: 2px; transition: width .3s; }
+.progress-label { font-size: 11px; color: #667; }
 
-.status-running {
-  background: #d4edda;
-  color: #155724;
-}
+.card-actions { display: flex; gap: 6px; }
 
-.status-waiting {
-  background: #fff3cd;
-  color: #856404;
-}
-
-.status-learning {
-  background: #cce7ff;
-  color: #004085;
-}
-
-.status-stopped {
-  background: #f8f9fa;
-  color: #6c757d;
-}
-
-.status-error {
-  background: #f8d7da;
-  color: #721c24;
-}
-
-.instance-info {
-  margin-bottom: 15px;
-}
-
-.action-text {
-  color: #666;
-  font-size: 14px;
-  margin-bottom: 10px;
-}
-
-.progress-section {
-  margin-top: 10px;
-}
-
-.progress-bar {
-  width: 100%;
-  height: 6px;
-  background: #ecf0f1;
-  border-radius: 3px;
-  overflow: hidden;
-  margin-bottom: 5px;
-}
-
-.progress-fill {
-  height: 100%;
-  background: #3498db;
-  transition: width 0.3s ease;
-}
-
-.progress-text {
-  font-size: 12px;
-  color: #7f8c8d;
-}
-
-.instance-actions {
-  display: flex;
-  gap: 8px;
-}
-
-.btn {
-  padding: 8px 16px;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 14px;
-  transition: all 0.3s ease;
-}
-
-.btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.btn-small {
-  padding: 6px 12px;
-  font-size: 12px;
-}
-
-.btn-primary {
-  background: #3498db;
-  color: white;
-}
-
-.btn-secondary {
-  background: #95a5a6;
-  color: white;
-}
-
-.btn-success {
-  background: #27ae60;
-  color: white;
-}
-
-.btn-warning {
-  background: #f39c12;
-  color: white;
-}
-
-.btn-danger {
-  background: #e74c3c;
-  color: white;
-}
-
-.btn:hover:not(:disabled) {
-  opacity: 0.9;
-  transform: translateY(-1px);
-}
+.btn { display: inline-flex; align-items: center; gap: 5px; padding: 7px 14px; border: none; border-radius: 6px; font-size: 13px; cursor: pointer; transition: all .15s; font-weight: 500; }
+.btn:disabled { opacity: .35; cursor: not-allowed; }
+.btn:hover:not(:disabled) { filter: brightness(1.15); transform: translateY(-1px); }
+.btn-sm { padding: 5px 10px; font-size: 12px; }
+.btn-primary { background: #4fc3f7; color: #1a1a2e; }
+.btn-ghost { background: rgba(255,255,255,.06); color: #8890b0; }
+.btn-ghost:hover { background: rgba(255,255,255,.1); color: #c0c8e0; }
+.btn-success { background: rgba(102,187,106,.2); color: #66bb6a; }
+.btn-warning { background: rgba(255,167,38,.2); color: #ffa726; }
+.btn-danger { background: rgba(231,76,60,.2); color: #e74c3c; }
+.btn-icon { width: 14px; height: 14px; flex-shrink: 0; }
 </style>

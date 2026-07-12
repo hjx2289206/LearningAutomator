@@ -1,9 +1,6 @@
 <template>
   <div class="app-container">
     <TitleBar />
-
-    
-
     <div class="main-container">
       <Sidebar />
       <div class="content-area">
@@ -18,23 +15,12 @@ import TitleBar from './components/TitleBar.vue'
 import Sidebar from './components/Sidebar.vue'
 </script>
 
-<style>
-* {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
-}
-
-body {
-  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-  background: #ecf0f1;
-  overflow: hidden;
-}
-
+<style scoped>
 .app-container {
   height: 100vh;
   display: flex;
   flex-direction: column;
+  background: #1a1a2e;
 }
 
 .main-container {
@@ -45,10 +31,7 @@ body {
 
 .content-area {
   flex: 1;
-  background: #ecf0f1;
+  background: #1a1a2e;
   overflow: auto;
-  padding: 20px;
 }
-
-
 </style>

@@ -1,75 +1,53 @@
 <template>
   <div class="title-bar">
     <div class="title-bar-drag">
-      <div class="app-title">浏览器自动化工具</div>
+      <div class="app-title">Learning Automator</div>
     </div>
-
     <div class="window-controls">
-      <button class="control-btn minimize" @click="minimize">
-        <span>−</span>
+      <button class="control-btn" @click="minimize" title="最小化">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="5" y1="12" x2="19" y2="12"/></svg>
       </button>
-      <button class="control-btn maximize" @click="maximize">
-        <span>{{ isMaximized ? '❐' : '□' }}</span>
+      <button class="control-btn" @click="maximize" title="最大化">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="16" rx="1"/></svg>
       </button>
-      <button class="control-btn close" @click="close">
-        <span>×</span>
+      <button class="control-btn close-btn" @click="closeWindow" title="关闭">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
       </button>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue'
+const api = (window as any).electronAPI
 
-const isMaximized = ref(false)
-
-const minimize = () => {
-  ;(window as any)?.electronAPI?.minimizeWindow?.()
-}
-
-const maximize = () => {
-  ;(window as any)?.electronAPI?.maximizeWindow?.()
-}
-
-const close = () => {
-  ;(window as any)?.electronAPI?.closeWindow?.()
-}
-
-const handleWindowStateChange = (event: any, state: string) => {
-  isMaximized.value = state === 'maximized'
-}
-
-onMounted(() => {
-  const api = (window as any)?.electronAPI
-  if (api?.onWindowStateChange) {
-    const removeListener = api.onWindowStateChange(handleWindowStateChange)
-    return removeListener
-  }
-})
+const minimize = () => api?.minimizeWindow?.()
+const maximize = () => api?.maximizeWindow?.()
+const closeWindow = () => api?.closeWindow?.()
 </script>
 
 <style scoped>
 .title-bar {
-  height: 32px;
-  background: #2c3e50;
+  height: 36px;
+  background: #0f0f1a;
   display: flex;
   justify-content: space-between;
   align-items: center;
   -webkit-app-region: drag;
-  border-bottom: 1px solid #34495e;
+  border-bottom: 1px solid #1e1e3a;
 }
 
 .title-bar-drag {
   display: flex;
   align-items: center;
-  padding-left: 12px;
+  padding-left: 14px;
   flex: 1;
 }
 
 .app-title {
-  color: #ecf0f1;
-  font-size: 12px;
+  color: #8890b0;
+  font-size: 11px;
   font-weight: 500;
+  letter-spacing: 0.5px;
 }
 
 .window-controls {
@@ -78,28 +56,30 @@ onMounted(() => {
 }
 
 .control-btn {
-  width: 46px;
-  height: 32px;
+  width: 44px;
+  height: 36px;
   border: none;
   background: transparent;
-  color: #ecf0f1;
-  font-size: 16px;
+  color: #8890b0;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: background-color 0.2s;
   cursor: pointer;
+  transition: background 0.15s;
+}
+
+.control-btn svg {
+  width: 14px;
+  height: 14px;
 }
 
 .control-btn:hover {
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.07);
+  color: #e0e0e0;
 }
 
-.control-btn.close:hover {
+.close-btn:hover {
   background: #e74c3c;
-}
-
-.control-btn span {
-  margin-top: -2px;
+  color: #fff;
 }
 </style>

@@ -31,6 +31,6 @@ export async function getConfig() {
 }
 
 export async function updateConfig(config: Record<string, unknown>) {
-  const res = await api.updateConfig(config)
+  const res = await api.updateConfig(JSON.parse(JSON.stringify(config)))
   return res.success ? (res.config || null) : null
 }

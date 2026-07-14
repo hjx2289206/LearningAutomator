@@ -117,11 +117,183 @@ export class BrowserInstance {
     const loginUrl = this.config.login_url || 'https://rsjapp.mianyang.cn/jxjy/pc/member/login.jhtml'
     this.currentAction = '正在打开登录页面'
     try {
-      await this.page.goto(loginUrl, { waitUntil: 'networkidle2', timeout: 30000 })
+      await this.page.goto(loginUrl, { waitUntil: 'domcontentloaded', timeout: 30000 })
       this.status = '等待登录'
-      this.currentAction = '请登录，进入课程页面后自动检测并开始刷课'
+      this.currentAction = '请在应用内完成登录'
     } catch (e) {
       this.currentAction = `打开登录页失败: ${e.message}`
+    }
+  }
+
+  async getLoginInfo() {
+    if (!this.page || !this.isDriverAlive()) return null
+
+    try {
+      await this.page.waitForSelector('#pspUserAccount', { timeout: 15000 })
+      const details = await this.page.evaluate(() => {
+        const account = document.querySelector('#pspUserAccount')
+        const password = document.querySelector('#pspUserPwd')
+        const verificationCode = document.querySelector('#verCode')
+        const submit = document.querySelector('#pwdLogin')
+
+        return {
+          title: document.title || '登录',
+          url: window.location.href,
+          account_placeholder: account?.getAttribute('placeholder') || '请输入身份证号',
+          password_placeholder: password?.getAttribute('placeholder') || '请输入密码',
+          verification_placeholder: verificationCode?.getAttribute('placeholder') || '请输入验证码',
+          submit_text: (submit?.textContent || '登录').replace(/\s+/g, ''),
+        }
+      })
+
+      return {
+        browser_id: this.id,
+        browser_name: this.name,
+        ...details,
+        captcha_image: await this._captureCaptcha(),
+      }
+    } catch (_) {
+      return null
+    }
+  }
+
+  async refreshLoginCaptcha() {
+    if (!this.page || !this.isDriverAlive()) return null
+
+    try {
+      const previousSrc = await this.page.$eval('#imgCode1', img => img.getAttribute('src') || '')
+      await this.page.evaluate(() => {
+        if (typeof window.fnGetImgCode === 'function') {
+          window.fnGetImgCode()
+          return
+        }
+        const img = document.querySelector('#imgCode1')
+        if (img) img.src = `${img.src.split('?')[0]}?sid=${Math.random()}`
+      })
+      await this.page.waitForFunction(
+        oldSrc => {
+          const img = document.querySelector('#imgCode1')
+          return Boolean(img && img.complete && img.naturalWidth > 0 && img.getAttribute('src') !== oldSrc)
+        },
+        { timeout: 10000 },
+        previousSrc,
+      )
+      return await this._captureCaptcha()
+    } catch (_) {
+      return await this._captureCaptcha()
+    }
+  }
+
+  async submitLogin(credentials = {}) {
+    if (!this.page || !this.isDriverAlive()) {
+      return { success: false, message: '浏览器未运行' }
+    }
+
+    const input = credentials && typeof credentials === 'object' ? credentials : {}
+    const account = String(input.account || '').trim()
+    const password = String(input.password || '')
+    const verificationCode = String(input.verificationCode || '').trim()
+    if (!account || !password || !verificationCode) {
+      return { success: false, message: '请完整填写登录信息' }
+    }
+
+    try {
+      await this.page.waitForSelector('#pspUserAccount', { timeout: 10000 })
+      await this.page.evaluate(({ accountValue, passwordValue, codeValue }) => {
+        if (!window.__learningAutomatorAlertWrapped && typeof window.Alert === 'function') {
+          const originalAlert = window.Alert
+          window.Alert = function (...args) {
+            window.__learningAutomatorLoginError = String(args[1] || args[0] || '')
+            return originalAlert.apply(this, args)
+          }
+          window.__learningAutomatorAlertWrapped = true
+        }
+        window.__learningAutomatorLoginError = ''
+
+        const fill = (selector, value) => {
+          const input = document.querySelector(selector)
+          if (!input) throw new Error(`未找到登录字段: ${selector}`)
+          const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set
+          setter?.call(input, value)
+          input.dispatchEvent(new Event('input', { bubbles: true }))
+          input.dispatchEvent(new Event('change', { bubbles: true }))
+        }
+
+        fill('#pspUserAccount', accountValue)
+        fill('#pspUserPwd', passwordValue)
+        fill('#verCode', codeValue)
+      }, { accountValue: account, passwordValue: password, codeValue: verificationCode })
+
+      this.status = '登录中'
+      this.currentAction = '正在提交登录信息...'
+      await this.page.click('#pwdLogin')
+
+      const outcomeHandle = await this.page.waitForFunction(() => {
+        if (!window.location.pathname.includes('/member/login')) {
+          return { success: true }
+        }
+
+        if (window.__learningAutomatorLoginError) {
+          return { success: false, message: window.__learningAutomatorLoginError.slice(0, 160) }
+        }
+
+        const errorPattern = /(错误|失败|不正确|不能为空|验证码|密码不符合|账号不存在|请重试)/
+        const candidates = document.querySelectorAll(
+          '.ta-message, .message, .alert, .dialog, [class*="message"], [class*="alert"]',
+        )
+        for (const element of candidates) {
+          const style = window.getComputedStyle(element)
+          const text = (element.textContent || '').replace(/\s+/g, ' ').trim()
+          if (style.display !== 'none' && style.visibility !== 'hidden' && text && errorPattern.test(text)) {
+            return { success: false, message: text.slice(0, 160) }
+          }
+        }
+        return false
+      }, { polling: 250, timeout: 12000 })
+
+      const outcome = await outcomeHandle.jsonValue()
+      if (outcome?.success) {
+        this.currentAction = '登录成功，正在进入课程...'
+        return { success: true }
+      }
+
+      this.status = '等待登录'
+      this.currentAction = outcome?.message || '登录失败，请检查后重试'
+      return {
+        success: false,
+        message: outcome?.message || '登录失败，请检查账号、密码和验证码',
+        captcha_image: await this.refreshLoginCaptcha(),
+      }
+    } catch (e) {
+      const currentUrl = this.page?.url() || ''
+      if (currentUrl && !currentUrl.includes('login') && !currentUrl.includes('/member/')) {
+        this.currentAction = '登录成功，正在进入课程...'
+        return { success: true }
+      }
+
+      this.status = '等待登录'
+      this.currentAction = `登录未完成: ${e.message}`
+      return {
+        success: false,
+        message: '登录未完成，请检查信息后重试',
+        captcha_image: await this.refreshLoginCaptcha(),
+      }
+    }
+  }
+
+  async _captureCaptcha() {
+    if (!this.page) return null
+    try {
+      await this.page.waitForFunction(() => {
+        const img = document.querySelector('#imgCode1')
+        return Boolean(img && img.complete && img.naturalWidth > 0)
+      }, { timeout: 10000 })
+      const image = await this.page.$('#imgCode1')
+      if (!image) return null
+      const base64 = await image.screenshot({ encoding: 'base64' })
+      return `data:image/png;base64,${base64}`
+    } catch (_) {
+      return null
     }
   }
 
@@ -155,7 +327,7 @@ export class BrowserInstance {
     const started = Date.now()
 
     this.status = '等待登录'
-    this.currentAction = '请完成登录，登录后将自动进入课程'
+    this.currentAction = '请在应用内完成登录，登录后将自动进入课程'
 
     while (this.isRunning && Date.now() - started < maxWait) {
       let currentUrl = ''

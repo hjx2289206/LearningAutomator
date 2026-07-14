@@ -7,7 +7,15 @@
           <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
           刷新
         </button>
-        <button class="btn btn-primary" @click="saveConfig" :disabled="saving">{{ saving ? '保存中...' : '保存设置' }}</button><transition name="toast-fade"><div v-if="toastMsg" class="toast">{{ toastMsg }}</div></transition>
+        <button class="btn btn-primary" @click="saveConfig" :disabled="saving">{{ saving ? '保存中...' : '保存设置' }}</button>
+        <Transition name="toast-motion">
+          <div v-if="toastMsg" class="toast" role="status">
+            <span class="toast-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+            </span>
+            <span>{{ toastMsg }}</span>
+          </div>
+        </Transition>
       </div>
     </div>
 
@@ -81,7 +89,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { getConfig, updateConfig } from '@/services/api'
 
 interface Cfg { [key: string]: any }
@@ -121,10 +129,11 @@ const learningUrlKeywordsText = computed({
 function showToast(msg: string) {
   toastMsg.value = msg
   if (toastTimer) clearTimeout(toastTimer)
-  toastTimer = setTimeout(() => { toastMsg.value = '' }, 2000)
+  toastTimer = setTimeout(() => { toastMsg.value = '' }, 2200)
 }
 
 onMounted(loadConfig)
+onUnmounted(() => { if (toastTimer) clearTimeout(toastTimer) })
 </script>
 
 <style scoped>
@@ -165,7 +174,33 @@ onMounted(loadConfig)
 .btn-ghost { background: rgba(255,255,255,.06); color: #8890b0; }
 .btn-ghost:hover { background: rgba(255,255,255,.1); color: #c0c8e0; }
 .btn-icon { width: 14px; height: 14px; flex-shrink: 0; }
-.toast { position: fixed; top: 48px; left: 50%; transform: translateX(-50%); background: rgba(102,187,106,0.9); color: #fff; padding: 8px 24px; border-radius: 6px; font-size: 13px; font-weight: 500; z-index: 9999; pointer-events: none; }
-.toast-fade-enter-active, .toast-fade-leave-active { transition: opacity 0.3s; }
-.toast-fade-enter-from, .toast-fade-leave-to { opacity: 0; }
+.toast {
+  position: fixed; top: 52px; left: 50%; z-index: 9999; min-width: 174px; height: 42px;
+  display: flex; align-items: center; justify-content: center; gap: 9px; overflow: hidden;
+  padding: 0 20px; border: 1px solid #2f2f34; border-radius: 7px;
+  background: #09090b; box-shadow: 0 12px 34px rgba(0, 0, 0, .42), inset 0 1px 0 rgba(255,255,255,.04);
+  color: #f4f4f5; font-size: 13px; font-weight: 550; pointer-events: none;
+  transform: translateX(-50%);
+}
+.toast::after {
+  content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 2px;
+  background: #66bb6a; transform-origin: left; animation: toast-timer 2.2s linear forwards;
+}
+.toast-icon {
+  width: 20px; height: 20px; display: grid; place-items: center; flex: 0 0 20px;
+  border-radius: 50%; background: #66bb6a; color: #071108;
+}
+.toast-icon svg { width: 12px; height: 12px; }
+.toast-motion-enter-active { animation: toast-in .42s cubic-bezier(.18, .9, .25, 1.22); }
+.toast-motion-leave-active { animation: toast-out .24s cubic-bezier(.55, 0, 1, .45); }
+@keyframes toast-in {
+  0% { transform: translateX(-50%) translateY(-32px) scale(.9); }
+  68% { transform: translateX(-50%) translateY(3px) scale(1.02); }
+  100% { transform: translateX(-50%) translateY(0) scale(1); }
+}
+@keyframes toast-out {
+  0% { transform: translateX(-50%) translateY(0) scale(1); }
+  100% { transform: translateX(-50%) translateY(-18px) scale(.95); }
+}
+@keyframes toast-timer { to { transform: scaleX(0); } }
 </style>

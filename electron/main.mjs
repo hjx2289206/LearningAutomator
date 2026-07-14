@@ -12,6 +12,18 @@ const isPackaged = app.isPackaged
 
 const manager = new BrowserManager()
 
+function focusMainWindowOnce() {
+  if (!mainWindow || mainWindow.isDestroyed()) return
+  if (mainWindow.isMinimized()) mainWindow.restore()
+  mainWindow.show()
+  mainWindow.setAlwaysOnTop(true, 'floating')
+  if (process.platform === 'darwin') app.focus({ steal: true })
+  mainWindow.focus()
+  setTimeout(() => {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.setAlwaysOnTop(false)
+  }, 700)
+}
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1200,
@@ -58,7 +70,22 @@ ipcMain.handle('browser:create', (_e, config) => {
 })
 ipcMain.handle('browser:start', async (_e, id) => {
   const ok = await manager.startBrowser(id)
-  return { success: ok }
+  if (!ok) return { success: false }
+
+  const login = await manager.getLoginInfo(id)
+  focusMainWindowOnce()
+  return { success: true, login }
+})
+ipcMain.handle('browser:get-login-info', async (_e, id) => {
+  const login = await manager.getLoginInfo(id)
+  return { success: Boolean(login), login }
+})
+ipcMain.handle('browser:refresh-login-captcha', async (_e, id) => {
+  const captchaImage = await manager.refreshLoginCaptcha(id)
+  return { success: Boolean(captchaImage), captcha_image: captchaImage }
+})
+ipcMain.handle('browser:login', async (_e, id, credentials) => {
+  return await manager.submitLogin(id, credentials)
 })
 ipcMain.handle('browser:stop', async (_e, id) => {
   await manager.stopBrowser(id)

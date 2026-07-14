@@ -54,6 +54,23 @@ export class BrowserManager {
     if (inst) await inst.stop()
   }
 
+  async getLoginInfo(id) {
+    const inst = this.browsers.get(id)
+    return inst ? await inst.getLoginInfo() : null
+  }
+
+  async refreshLoginCaptcha(id) {
+    const inst = this.browsers.get(id)
+    return inst ? await inst.refreshLoginCaptcha() : null
+  }
+
+  async submitLogin(id, credentials) {
+    const inst = this.browsers.get(id)
+    return inst
+      ? await inst.submitLogin(credentials)
+      : { success: false, message: '浏览器实例不存在' }
+  }
+
   removeBrowser(id) {
     const inst = this.browsers.get(id)
     if (inst) inst.stop()

@@ -13,6 +13,28 @@ export async function startBrowser(id: number) {
   return await api.startBrowser(id)
 }
 
+export async function getLoginInfo(id: number) {
+  const res = await api.getLoginInfo(id)
+  return res.success ? res.login : null
+}
+
+export async function refreshLoginCaptcha(id: number) {
+  const res = await api.refreshLoginCaptcha(id)
+  return res.success ? res.captcha_image : null
+}
+
+export async function loginBrowser(
+  id: number,
+  credentials: { account: string; password: string; verificationCode: string },
+) {
+  const payload = {
+    account: String(credentials.account || ''),
+    password: String(credentials.password || ''),
+    verificationCode: String(credentials.verificationCode || ''),
+  }
+  return await api.loginBrowser(id, payload)
+}
+
 export async function stopBrowser(id: number) {
   return await api.stopBrowser(id)
 }

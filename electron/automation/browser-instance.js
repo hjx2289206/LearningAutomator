@@ -41,6 +41,8 @@ function findChrome() {
 export class BrowserInstance {
   constructor(id, config) {
     this.id = id
+    this.name = config.name || `实例 #${id}`
+    this.realName = config.realName || null
     this.config = config
     this.browser = null
     this.page = null
@@ -160,6 +162,21 @@ export class BrowserInstance {
       try { currentUrl = this.page.url() } catch (_) {}
       if (currentUrl && !currentUrl.includes('login') && !currentUrl.includes('/member/')) {
         this.currentAction = '登录完成，准备进入课程...'
+        // 自动提取用户名作为实例名称
+        try {
+          const userName = await this.page.evaluate(() => {
+            const links = document.querySelectorAll('a');
+            for (const a of links) {
+              const match = (a.textContent || '').trim().match(/欢迎您[：:]\s*(.+)/);
+              if (match) return match[1].trim();
+            }
+            return null;
+          });
+          if (userName) {
+            this.realName = userName;
+            this.currentAction = `登录完成 (${userName})，准备进入课程...`;
+          }
+        } catch (_) {}
         await this._sleep(2000)
         return
       }
@@ -174,6 +191,82 @@ export class BrowserInstance {
 
     await this.page.goto(courseUrl, { waitUntil: 'networkidle2', timeout: 30000 })
     await this._sleep(3000)
+
+    // 检查是否需要先选课
+    this.currentAction = '正在检查是否需要选课...'
+    const hasSelectCourse = await this.page.evaluate(() => {
+      const links = document.querySelectorAll('a');
+      for (const a of links) {
+        if ((a.textContent || '').trim() === '选课') return true;
+      }
+      return false;
+    });
+
+    if (hasSelectCourse) {
+      this.currentAction = '正在选课...'
+
+      // 先注册原生 confirm 弹窗监听器，再触发点击
+      // Puppeteer 标准模式：两个动作并行执行
+      const [dialog] = await Promise.all([
+        new Promise((resolve) => {
+          const timeout = setTimeout(() => resolve(null), 10000);
+          this.page.once('dialog', (d) => {
+            clearTimeout(timeout);
+            resolve(d);
+          });
+        }),
+        // 点击选课链接（dispatchEvent 触发 onclick；如果有 href 也会导航）
+        this.page.evaluate(() => {
+          const links = document.querySelectorAll('a');
+          for (const a of links) {
+            if ((a.textContent || '').trim() === '选课') {
+              a.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+              return;
+            }
+          }
+        }).catch(() => {}),
+      ]);
+
+      // 如果捕获到原生 confirm 弹窗，直接确认
+      if (dialog) {
+        this.currentAction = '正在确认选课...';
+        await dialog.accept();
+        await this._sleep(3000);
+      } else {
+        // 没有原生弹窗，说明是 HTML 模态框，等待渲染后查找并点击
+        await this._sleep(3000);
+        this.currentAction = '正在确认选课...';
+        await this.page.evaluate(() => {
+          // 搜索所有可见元素（不限标签类型）
+          const allElements = document.querySelectorAll('*');
+          for (const el of allElements) {
+            const text = (el.textContent || '').trim();
+            if (text === '确认选课' || text === '确定') {
+              // 找可交互的父级元素
+              let target = el;
+              while (target && target !== document.body) {
+                const tag = target.tagName.toLowerCase();
+                if (tag === 'a' || tag === 'button' || (tag === 'input' && target.type.match(/button|submit/))) {
+                  target.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+                  return true;
+                }
+                target = target.parentElement;
+              }
+              // 没找到可点击的父级，直接点文本元素本身
+              el.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+              return true;
+            }
+          }
+          return false;
+        }).catch(() => {});
+      }
+
+      // 重新导航到课程页确保状态最新
+      await this._sleep(3000);
+      this.currentAction = '选课完成，返回课程页...';
+      await this.page.goto(courseUrl, { waitUntil: 'networkidle2', timeout: 30000 });
+      await this._sleep(3000);
+    }
 
     // 查找"开始学习"或"继续学习"按钮
     this.currentAction = '正在查找课程入口...'
@@ -277,6 +370,8 @@ export class BrowserInstance {
       status: this.status,
       current_action: this.currentAction,
       progress: { ...this.progress },
+      name: this.name,
+      real_name: this.realName,
       current_url: currentUrl,
       title: this._lastTitle || null,
     }
@@ -304,6 +399,15 @@ export class BrowserInstance {
     } catch (_) {}
 
   }
+  _sendNotification(title, body) {
+    try {
+      const { Notification } = require('electron');
+      if (Notification.isSupported()) {
+        new Notification({ title, body }).show();
+      }
+    } catch (_) {}
+  }
+
   _sleep(ms) {
     return new Promise(r => setTimeout(r, ms))
   }

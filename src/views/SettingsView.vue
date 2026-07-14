@@ -7,7 +7,7 @@
           <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
           刷新
         </button>
-        <button class="btn btn-primary" @click="saveConfig" :disabled="saving">{{ saving ? '保存中...' : '保存设置' }}</button>
+        <button class="btn btn-primary" @click="saveConfig" :disabled="saving">{{ saving ? '保存中...' : '保存设置' }}</button><transition name="toast-fade"><div v-if="toastMsg" class="toast">{{ toastMsg }}</div></transition>
       </div>
     </div>
 
@@ -97,6 +97,8 @@ const cfg = ref<Cfg>({
 const loading = ref(true)
 const saving = ref(false)
 const err = ref('')
+const toastMsg = ref('')
+let toastTimer: ReturnType<typeof setTimeout> | null = null
 
 async function loadConfig() {
   try { loading.value = true; err.value = ''
@@ -104,7 +106,7 @@ async function loadConfig() {
   } catch(e: any) { err.value = e.message || '加载失败' } finally { loading.value = false }
 }
 async function saveConfig() {
-  try { saving.value = true; await updateConfig(cfg.value) } catch(e: any) { err.value = e.message } finally { saving.value = false }
+  try { saving.value = true; await updateConfig(cfg.value); showToast('设置已保存') } catch(e: any) { err.value = e.message } finally { saving.value = false }
 }
 
 const learningKeywordsText = computed({
@@ -115,6 +117,12 @@ const learningUrlKeywordsText = computed({
   get: () => (cfg.value.learning_url_keywords || []).join(','),
   set: (v) => { cfg.value.learning_url_keywords = v.split(',').map((s:string) => s.trim()).filter(Boolean) }
 })
+
+function showToast(msg: string) {
+  toastMsg.value = msg
+  if (toastTimer) clearTimeout(toastTimer)
+  toastTimer = setTimeout(() => { toastMsg.value = '' }, 2000)
+}
 
 onMounted(loadConfig)
 </script>
@@ -157,4 +165,7 @@ onMounted(loadConfig)
 .btn-ghost { background: rgba(255,255,255,.06); color: #8890b0; }
 .btn-ghost:hover { background: rgba(255,255,255,.1); color: #c0c8e0; }
 .btn-icon { width: 14px; height: 14px; flex-shrink: 0; }
+.toast { position: fixed; top: 48px; left: 50%; transform: translateX(-50%); background: rgba(102,187,106,0.9); color: #fff; padding: 8px 24px; border-radius: 6px; font-size: 13px; font-weight: 500; z-index: 9999; pointer-events: none; }
+.toast-fade-enter-active, .toast-fade-leave-active { transition: opacity 0.3s; }
+.toast-fade-enter-from, .toast-fade-leave-to { opacity: 0; }
 </style>

@@ -6,6 +6,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   stopBrowser: (id) => ipcRenderer.invoke('browser:stop', id),
   removeBrowser: (id) => ipcRenderer.invoke('browser:remove', id),
   stopAllBrowsers: () => ipcRenderer.invoke('browser:stop-all'),
+  renameBrowser: (id, name) => ipcRenderer.invoke("browser:rename", id, name),
   getBrowsersStatus: () => ipcRenderer.invoke('browser:get-all-status'),
   getConfig: () => ipcRenderer.invoke('config:get'),
   updateConfig: (updates) => ipcRenderer.invoke('config:update', updates),

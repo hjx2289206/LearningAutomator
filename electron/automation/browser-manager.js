@@ -32,8 +32,9 @@ export class BrowserManager {
   }
 
   createBrowser(configOverrides = {}) {
+    const name = configOverrides.name || null
     const id = this.nextId++
-    const cfg = { ...this.config, ...configOverrides }
+    const cfg = { ...this.config, ...configOverrides, name }
     const inst = new BrowserInstance(id, cfg)
     this.browsers.set(id, inst)
     this._saveInstances()
@@ -58,6 +59,17 @@ export class BrowserManager {
     if (inst) inst.stop()
     this.browsers.delete(id)
     this._saveInstances()
+  }
+
+
+  renameBrowser(id, name) {
+    const inst = this.browsers.get(id)
+    if (inst) {
+      inst.name = name
+      this._saveInstances()
+      return true
+    }
+    return false
   }
 
   async stopAll() {
@@ -107,7 +119,9 @@ export class BrowserManager {
         let maxId = 0
         for (const item of items) {
           const id = item.browser_id
-          const cfg = { ...this.config, ...(item.config || {}) }
+          const name = item.name || null
+          const realName = item.real_name || null
+          const cfg = { ...this.config, ...(item.config || {}), name, realName }
           this.browsers.set(id, new BrowserInstance(id, cfg))
           if (id > maxId) maxId = id
         }

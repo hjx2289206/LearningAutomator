@@ -26,7 +26,11 @@
     <div v-else class="instances-grid">
       <div v-for="b in browsers" :key="b.browser_id" class="instance-card" :class="cardClass(b.status)">
         <div class="card-header">
-          <span class="instance-id">实例 #{{ b.browser_id }}</span>
+                      <span v-if="editingNameId !== b.browser_id" class="instance-name-row" @click="startRename(b.browser_id)" title="点击改名">
+              <span class="instance-id">{{ b.name || '实例 #' + b.browser_id }}</span><span v-if="b.real_name" class="real-name">{{ b.real_name }}</span>
+              <svg class="edit-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+            </span>
+            <input v-else class="rename-input" v-model="renameValue" @keyup.enter="commitRename(b.browser_id)" @keyup.escape="cancelRename" @blur="commitRename(b.browser_id)" />
           <span class="status-chip" :class="statusClass(b.status)">{{ b.status }}</span>
         </div>
 
@@ -73,10 +77,10 @@
 
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue'
-import { getBrowsers, createBrowser as apiCreate, startBrowser, stopBrowser, removeBrowser, stopAllBrowsers } from '@/services/api'
+import { getBrowsers, createBrowser as apiCreate, startBrowser, stopBrowser, removeBrowser, stopAllBrowsers, renameBrowser } from '@/services/api'
 
 interface BrowserInst {
-  browser_id: number; status: string; current_action: string
+  browser_id: number; name?: string | null; real_name?: string | null; status: string; current_action: string
   progress?: { current: number; total: number; percentage: number; eta?: string | null; eta_seconds?: number | null }
   current_url?: string; title?: string
 }
@@ -84,8 +88,10 @@ interface BrowserInst {
 const browsers = ref<BrowserInst[]>([])
 const loading = ref(true)
 const error = ref('')
+const editingNameId = ref<number | null>(null)
+const renameValue = ref("")
 let hasLoaded = false
-let interval: number
+let interval: ReturnType<typeof setInterval>
 
 async function loadBrowsers(init = false) {
   try {
@@ -115,6 +121,27 @@ async function stop(id: number) {
 async function remove(id: number) {
   if (!confirm('确定要移除这个实例吗？')) return
   try { await removeBrowser(id); await loadBrowsers() } catch (e) { console.error(e) }
+}
+
+async function startRename(id: number) {
+  const browser = browsers.value.find(b => b.browser_id === id)
+  if (!browser) return
+  editingNameId.value = id
+  renameValue.value = browser.name || ""
+}
+
+async function commitRename(id: number) {
+  const newName = renameValue.value.trim()
+  if (newName && editingNameId.value === id) {
+    await renameBrowser(id, newName || ("实例 #" + id))
+    const browser = browsers.value.find(b => b.browser_id === id)
+    if (browser) browser.name = newName || ("实例 #" + id)
+  }
+  editingNameId.value = null
+}
+
+function cancelRename() {
+  editingNameId.value = null
 }
 
 async function stopAll() {
@@ -176,6 +203,13 @@ onUnmounted(() => clearInterval(interval))
 
 .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
 .instance-id { font-weight: 600; font-size: 14px; color: #c0c8e0; }
+.instance-name-row { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+.instance-name-row:hover .edit-icon { opacity: 1; }
+.edit-icon { width: 13px; height: 13px; opacity: 0; transition: opacity 0.15s; color: #667; }
+.instance-name-row:hover .edit-icon { opacity: 0.6; }
+.instance-name-row:hover .instance-id { color: #4fc3f7; }
+.real-name { font-size: 11px; color: #8890b0; font-weight: 400; margin-left: 2px; }
+.rename-input { background: #1a1a2e; border: 1px solid #4fc3f7; border-radius: 4px; color: #e0e0e0; font-size: 14px; font-weight: 600; padding: 2px 6px; width: 140px; outline: none; }
 .status-chip { padding: 3px 10px; border-radius: 10px; font-size: 11px; font-weight: 600; }
 .s-running { background: rgba(102,187,106,.18); color: #66bb6a; }
 .s-learning { background: rgba(79,195,247,.18); color: #4fc3f7; }

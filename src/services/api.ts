@@ -25,6 +25,11 @@ export async function stopAllBrowsers() {
   return await api.stopAllBrowsers()
 }
 
+export async function renameBrowser(id: number, name: string) {
+  const res = await api.renameBrowser(id, name)
+  return res.success
+}
+
 export async function getConfig() {
   const res = await api.getConfig()
   return res.success ? (res.config || null) : null

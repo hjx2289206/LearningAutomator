@@ -69,6 +69,11 @@ export class LearningAutomation {
       inst.currentAction = `达到最大尝试次数 (${stats.completed}/${total})`
     }
 
+
+    const displayName = inst.name || (`实例 #${inst.id}`)
+    const realName = inst.realName || ""
+    const label = realName ? `${displayName} (${realName})` : displayName
+    inst._sendNotification("刷课完成", `${label} 已完成所有课程！`)
     return true
   }
 

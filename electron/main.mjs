@@ -72,6 +72,10 @@ ipcMain.handle('browser:stop-all', async () => {
   await manager.stopAll()
   return { success: true }
 })
+ipcMain.handle('browser:rename', (_e, id, name) => {
+  const ok = manager.renameBrowser(id, name)
+  return { success: ok }
+})
 ipcMain.handle('browser:get-all-status', () => {
   const list = manager.getAllStatus()
   return { success: true, browsers: list }

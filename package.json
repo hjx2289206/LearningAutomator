@@ -9,6 +9,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "type-check": "vue-tsc --build",
+    "test:persistence": "node --test test/*.test.mjs",
     "electron:dev": "electron .",
     "pack:mac": "pnpm build && electron-builder --mac",
     "pack:win": "pnpm build && electron-builder --win",

@@ -1,5 +1,6 @@
 import puppeteer from 'puppeteer-core'
 import fs from 'fs'
+import path from 'path'
 import { TabMonitor } from './tab-monitor.js'
 import { LearningAutomation } from './learning-automation.js'
 
@@ -39,11 +40,13 @@ function findChrome() {
 }
 
 export class BrowserInstance {
-  constructor(id, config) {
+  constructor(id, config, dataDir = process.cwd(), onIdentityChange = null) {
     this.id = id
     this.name = config.name || `实例 #${id}`
     this.realName = config.realName || null
     this.config = config
+    this.dataDir = dataDir
+    this.onIdentityChange = onIdentityChange
     this.browser = null
     this.page = null
     this.status = '未启动'
@@ -80,7 +83,12 @@ export class BrowserInstance {
         ],
         defaultViewport: null,
         userDataDir: this.config.user_data_dir
-          ? `${this.config.user_data_dir}/profile_${this.id}`
+          ? path.join(
+              path.isAbsolute(this.config.user_data_dir)
+                ? this.config.user_data_dir
+                : path.join(this.dataDir, this.config.user_data_dir),
+              `profile_${this.id}`,
+            )
           : undefined,
       })
 
@@ -347,6 +355,7 @@ export class BrowserInstance {
           if (userName) {
             this.realName = userName;
             this.currentAction = `登录完成 (${userName})，准备进入课程...`;
+            this.onIdentityChange?.(this.id, userName);
           }
         } catch (_) {}
         await this._sleep(2000)

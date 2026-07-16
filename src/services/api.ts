@@ -35,6 +35,21 @@ export async function loginBrowser(
   return await api.loginBrowser(id, payload)
 }
 
+export async function listCredentials(browserId: number) {
+  const res = await api.listCredentials(browserId)
+  return res.success ? (res.profiles || []) : []
+}
+
+export async function getCredential(account: string) {
+  const res = await api.getCredential(String(account || ''))
+  return res.success ? (res.credential || null) : null
+}
+
+export async function removeCredential(account: string) {
+  const res = await api.removeCredential(String(account || ''))
+  return Boolean(res.success)
+}
+
 export async function stopBrowser(id: number) {
   return await api.stopBrowser(id)
 }

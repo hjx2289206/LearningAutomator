@@ -92,9 +92,35 @@
             </header>
 
             <form class="login-form" @submit.prevent="submitLogin">
+              <label v-if="savedCredentials.length > 0 || credentialsLoading" class="login-field">
+                <span>登录档案</span>
+                <div class="credential-picker" :class="{ 'has-remove': selectedCredentialAccount }">
+                  <select
+                    v-model="selectedCredentialAccount"
+                    :disabled="credentialsLoading"
+                    @change="selectCredential"
+                  >
+                    <option value="">{{ credentialsLoading ? '正在加载...' : '手动输入账号' }}</option>
+                    <option v-for="profile in savedCredentials" :key="profile.account" :value="profile.account">
+                      {{ credentialLabel(profile) }}
+                    </option>
+                  </select>
+                  <button
+                    v-if="selectedCredentialAccount"
+                    class="credential-remove"
+                    type="button"
+                    title="删除登录档案"
+                    aria-label="删除登录档案"
+                    @click="deleteSelectedCredential"
+                  >
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                  </button>
+                </div>
+              </label>
+
               <label class="login-field">
                 <span>身份证号</span>
-                <input v-model.trim="loginForm.account" type="text" :placeholder="loginDialog.account_placeholder" autocomplete="username" required autofocus />
+                <input v-model.trim="loginForm.account" type="text" :placeholder="loginDialog.account_placeholder" autocomplete="username" required autofocus @input="selectedCredentialAccount = ''" />
               </label>
 
               <label class="login-field">
@@ -150,6 +176,9 @@ import {
   getLoginInfo,
   refreshLoginCaptcha,
   loginBrowser,
+  listCredentials,
+  getCredential,
+  removeCredential,
 } from '@/services/api'
 
 interface BrowserInst {
@@ -170,6 +199,13 @@ interface LoginInfo {
   captcha_image?: string | null
 }
 
+interface SavedCredential {
+  account: string
+  name?: string | null
+  preferred?: boolean
+  updated_at?: string
+}
+
 const browsers = ref<BrowserInst[]>([])
 const loading = ref(true)
 const error = ref('')
@@ -182,6 +218,9 @@ const loginError = ref('')
 const loginSubmitting = ref(false)
 const captchaLoading = ref(false)
 const showPassword = ref(false)
+const savedCredentials = ref<SavedCredential[]>([])
+const selectedCredentialAccount = ref('')
+const credentialsLoading = ref(false)
 let hasLoaded = false
 let interval: ReturnType<typeof setInterval>
 
@@ -223,8 +262,71 @@ function canStart(status: string) {
 function openLoginDialog(info: LoginInfo) {
   loginDialog.value = info
   loginForm.value = { account: '', password: '', verificationCode: '' }
+  savedCredentials.value = []
+  selectedCredentialAccount.value = ''
   loginError.value = ''
   showPassword.value = false
+  void loadCredentials(info.browser_id)
+}
+
+async function loadCredentials(browserId: number) {
+  try {
+    credentialsLoading.value = true
+    const profiles = await listCredentials(browserId) as SavedCredential[]
+    if (loginDialog.value?.browser_id !== browserId) return
+    savedCredentials.value = profiles
+    const preferred = profiles.find(profile => profile.preferred)
+    if (preferred) {
+      selectedCredentialAccount.value = preferred.account
+      await applyCredential(preferred.account, browserId)
+    }
+  } catch (e) {
+    console.error('加载登录档案失败:', e)
+  } finally {
+    if (loginDialog.value?.browser_id === browserId) credentialsLoading.value = false
+  }
+}
+
+async function selectCredential() {
+  if (!loginDialog.value) return
+  if (!selectedCredentialAccount.value) {
+    loginForm.value.account = ''
+    loginForm.value.password = ''
+    return
+  }
+  await applyCredential(selectedCredentialAccount.value, loginDialog.value.browser_id)
+}
+
+async function applyCredential(account: string, browserId: number) {
+  try {
+    const credential = await getCredential(account)
+    if (!credential || loginDialog.value?.browser_id !== browserId) return
+    loginForm.value.account = credential.account
+    loginForm.value.password = credential.password
+  } catch (e: any) {
+    loginError.value = e?.message || '读取登录档案失败'
+  }
+}
+
+async function deleteSelectedCredential() {
+  const account = selectedCredentialAccount.value
+  if (!account || !confirm('确定删除这个登录档案吗？')) return
+  try {
+    await removeCredential(account)
+    savedCredentials.value = savedCredentials.value.filter(profile => profile.account !== account)
+    selectedCredentialAccount.value = ''
+    loginForm.value = { account: '', password: '', verificationCode: loginForm.value.verificationCode }
+  } catch (e: any) {
+    loginError.value = e?.message || '删除登录档案失败'
+  }
+}
+
+function credentialLabel(profile: SavedCredential) {
+  const account = profile.account
+  const masked = account.length > 7
+    ? `${account.slice(0, 3)}****${account.slice(-4)}`
+    : account
+  return profile.name ? `${profile.name} · ${masked}` : masked
 }
 
 async function showLogin(id: number) {
@@ -239,6 +341,8 @@ async function showLogin(id: number) {
 function closeLoginDialog() {
   if (loginSubmitting.value) return
   loginDialog.value = null
+  savedCredentials.value = []
+  selectedCredentialAccount.value = ''
   loginForm.value.password = ''
   loginForm.value.verificationCode = ''
   loginError.value = ''
@@ -265,7 +369,10 @@ async function submitLogin() {
     loginSubmitting.value = true
     const result = await loginBrowser(loginDialog.value.browser_id, loginForm.value)
     if (result?.success) {
+      if (result.credentials_warning) alert(`登录成功，但密码未保存：${result.credentials_warning}`)
       loginDialog.value = null
+      savedCredentials.value = []
+      selectedCredentialAccount.value = ''
       loginForm.value = { account: '', password: '', verificationCode: '' }
       await loadBrowsers()
       return
@@ -447,6 +554,19 @@ onUnmounted(() => clearInterval(interval))
   background: #0e0e17; color: #eeeeF2; font-size: 13px;
 }
 .login-field input::placeholder { color: #555568; }
+.credential-picker { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
+.credential-picker.has-remove { grid-template-columns: minmax(0, 1fr) 40px; }
+.credential-picker select {
+  width: 100%; height: 40px; padding: 0 34px 0 12px; border: 1px solid #313144; border-radius: 6px;
+  background: #0e0e17; color: #eeeeF2; font-size: 13px; cursor: pointer;
+}
+.credential-picker select:disabled { color: #666678; cursor: wait; }
+.credential-remove {
+  width: 40px; height: 40px; display: grid; place-items: center; border: 1px solid #3b2b31; border-radius: 6px;
+  background: #21151a; color: #d86a7a; cursor: pointer;
+}
+.credential-remove:hover { background: #301a21; color: #f08391; }
+.credential-remove svg { width: 16px; height: 16px; }
 .password-input { position: relative; }
 .password-input input { padding-right: 42px; }
 .password-toggle {
